@@ -32,32 +32,6 @@ io.on('connection', (socket) => {
         let username = payload;
         let color = '#ffffff';
 
-        // Handle object payload (new client) or string (old client fallback)
-        if (typeof payload === 'object') {
-            username = payload.username;
-            color = payload.color;
-        }
-
-        console.log(`User ${username} (${socket.id}) joined room ${roomId}`);
-
-        // Store user info
-        users[socket.id] = { username, room: roomId, color };
-
-        socket.join(roomId);
-
-        // Notify others in the room for WebRTC connection
-        socket.to(roomId).emit('user-connected', socket.id); // For signaling
-
-        // Broadcast updated user list
-        io.to(roomId).emit('update-user-list', getUsersInRoom(roomId));
-
-        // System message
-        io.to(roomId).emit('chat-message', {
-            username: 'Sistem',
-            text: `${username} odaya katıldı.`,
-            type: 'system'
-        });
-
         socket.on('disconnect', () => {
             const user = users[socket.id];
             if (user) {
