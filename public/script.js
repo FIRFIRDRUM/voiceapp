@@ -4,12 +4,32 @@ const myPeer = new RTCPeerConnection({
     iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
 });
 
+// Import Electron modules safely
+let desktopCapturer;
+let ipcRenderer;
+try {
+    // Try standard require first (Node integration)
+    const electron = require('electron');
+    desktopCapturer = electron.desktopCapturer;
+    ipcRenderer = electron.ipcRenderer;
+} catch (e) {
+    try {
+        // Try window.require (Context Isolation fallback)
+        const electron = window.require('electron');
+        desktopCapturer = electron.desktopCapturer;
+        ipcRenderer = electron.ipcRenderer;
+    } catch (e2) {
+        console.warn("Electron modules not found. Running in browser mode?", e2);
+    }
+}
+
 // State
 let myStream;
 let myScreenStream;
 let myUsername = '';
 let myColor = '#ffffff';
 let currentRoom = '';
+let isConnected = false; // Track connection state
 const peers = {}; // userId -> PeerConnection
 const userVolumes = {}; // userId -> volume (0-1)
 
@@ -57,29 +77,24 @@ loginBtn.addEventListener('click', () => {
     if (!user) return alert('Lütfen kullanıcı adı girin');
 
     try {
-        socket = io(url);
+        if (!socket) {
+            socket = io(url);
+            setupSocketEvents();
+        } else if (!socket.connected) {
+            socket.connect();
+        }
     } catch (e) {
         alert("Bağlantı hatası: " + e.message);
         return;
     }
 
     myUsername = user;
-    myColor = getRandomColor();
+    if (!myColor || myColor === '#ffffff') myColor = getRandomColor();
 
     // Request Notification Permission
     Notification.requestPermission();
-
-    socket.on('connect', () => {
-        loginScreen.classList.add('hidden');
-        lobbyScreen.classList.remove('hidden');
-    });
-
-    socket.on('connect_error', (err) => {
-        console.error("Connect error", err);
-    });
-
-    setupSocketEvents();
 });
+
 
 // --- 2. JOIN ROOM ---
 roomBtns.forEach(btn => {
@@ -111,6 +126,7 @@ async function joinRoom(room) {
 
 // --- 3. LEAVE ROOM ---
 leaveBtn.addEventListener('click', () => {
+    // Reload acts as a full reset
     location.reload();
 });
 
@@ -160,59 +176,101 @@ muteBtn.addEventListener('click', () => {
 if (shareScreenBtn) {
     shareScreenBtn.addEventListener('click', async () => {
         if (myScreenStream) {
-            // Stop Sharing
             stopScreenShare();
             return;
         }
 
-        try {
-            // Use standard Web API for screen sharing
-            const stream = await navigator.mediaDevices.getDisplayMedia({
-                video: true,
-                audio: false
-            });
-
-            myScreenStream = stream;
-            shareScreenBtn.innerText = 'Paylaşımı Durdur';
-            shareScreenBtn.classList.add('sharing');
-
-            // Add video track to local video grid (preview)
-            addVideoStream(stream, null, true);
-
-            // Add track to all peers
-            const videoTrack = stream.getVideoTracks()[0];
-
-            // Handle user stopping share via OS floating bar
-            videoTrack.onended = () => stopScreenShare();
-
-            for (const userId in peers) {
-                const peer = peers[userId];
-                // Add track to peer
-                peer.addTrack(videoTrack, stream);
+        // Try standard API first (Browser)
+        if (!desktopCapturer) {
+            try {
+                const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+                startScreenShareFromStream(stream);
+                return;
+            } catch (e) {
+                // Ignore, try electron way or alert
+                alert("Web Ekran Paylaşımı Başarısız: " + e.message + "\nElectron paylaşımı deneniyor...");
             }
+        }
 
-        } catch (e) {
-            console.error(e);
-            alert('Ekran paylaşımı başlatılamadı: ' + e.message);
+        // Try Electron Way
+        if (desktopCapturer) {
+            try {
+                const sources = await desktopCapturer.getSources({ types: ['window', 'screen'] });
+                sourceGrid.innerHTML = '';
+                sources.forEach(source => {
+                    const div = document.createElement('div');
+                    div.classList.add('source-item');
+                    div.innerHTML = `<img src="${source.thumbnail.toDataURL()}" /><p>${source.name}</p>`;
+                    div.onclick = async () => {
+                        sourceModal.classList.add('hidden');
+                        try {
+                            const stream = await navigator.mediaDevices.getUserMedia({
+                                audio: false,
+                                video: {
+                                    mandatory: {
+                                        chromeMediaSource: 'desktop',
+                                        chromeMediaSourceId: source.id
+                                    }
+                                }
+                            });
+                            startScreenShareFromStream(stream);
+                        } catch (err) {
+                            alert("Electron stream hatası: " + err.message);
+                        }
+                    };
+                    sourceGrid.appendChild(div);
+                });
+                sourceModal.classList.remove('hidden');
+            } catch (e) {
+                alert("Electron Source Hatası: " + e.message);
+            }
+        } else {
+            alert("Ekran paylaşımı için uygun yöntem bulunamadı.");
         }
     });
+}
+
+function startScreenShareFromStream(stream) {
+    myScreenStream = stream;
+    shareScreenBtn.innerText = 'Paylaşımı Durdur';
+    shareScreenBtn.classList.add('sharing');
+
+    // Local Preview
+    addVideoStream(stream, null, true);
+
+    const videoTrack = stream.getVideoTracks()[0];
+    videoTrack.onended = () => stopScreenShare();
+
+    // Send to peers
+    for (const userId in peers) {
+        const peer = peers[userId];
+        peer.addTrack(videoTrack, stream);
+    }
 }
 
 function stopScreenShare() {
     if (!myScreenStream) return;
 
+    // 1. Tell Server
+    socket.emit('stop-screen-share');
+
+    // 2. Stop Tracks
     myScreenStream.getTracks().forEach(track => track.stop());
     myScreenStream = null;
 
     shareScreenBtn.innerText = 'Ekran Paylaş';
     shareScreenBtn.classList.remove('sharing');
 
-    // Remove local preview
+    // 3. Remove Local Preview
     const localVideo = document.getElementById('local-video-preview');
     if (localVideo) localVideo.remove();
 }
 
 function addVideoStream(stream, userId, isLocal = false) {
+    // Avoid Duplicates
+    if (!isLocal && document.getElementById(`video-${userId}`)) return;
+    if (isLocal && document.getElementById('local-video-preview')) return;
+
     const video = document.createElement('video');
     video.srcObject = stream;
     video.autoplay = true;
@@ -227,6 +285,28 @@ function addVideoStream(stream, userId, isLocal = false) {
 
 // --- SOCKET EVENTS ---
 function setupSocketEvents() {
+    socket.on('connect', () => {
+        isConnected = true;
+        // Only show lobby if we are NOT in a room (First login)
+        // If we are in a room and reconnecting, we should probably re-join or stay silent?
+        // Ideally we re-join. For now, let's just NOT jump to lobby if room is set.
+        if (!currentRoom) {
+            loginScreen.classList.add('hidden');
+            lobbyScreen.classList.remove('hidden');
+        } else {
+            console.log("Reconnected to socket while in room");
+            // If the socket ID changed, we effectively left the room on the server.
+            // We must re-join.
+            socket.emit('join-room', currentRoom, { username: myUsername, color: myColor });
+        }
+    });
+
+    socket.on('disconnect', () => {
+        isConnected = false;
+        console.log("Disconnected...");
+        showNotification("Bağlantı Koptu", "Yeniden bağlanılıyor...");
+    });
+
     socket.on('update-user-list', (users) => {
         userList.innerHTML = '';
         users.forEach(u => {
@@ -237,13 +317,14 @@ function setupSocketEvents() {
             li.style.padding = '8px';
             li.style.borderBottom = '1px solid #333';
 
-            // User Info Row
+            // User Info
             const infoRow = document.createElement('div');
             const span = document.createElement('span');
 
             let displayName = u.username;
             let displayColor = u.color || '#fff';
 
+            // Compatibility Check
             if (typeof displayName === 'object' && displayName !== null) {
                 displayColor = displayName.color || displayColor;
                 displayName = displayName.username || 'Bilinmeyen';
@@ -254,7 +335,7 @@ function setupSocketEvents() {
             infoRow.appendChild(span);
             li.appendChild(infoRow);
 
-            // Volume Slider (only for others)
+            // Volume Slider
             if (u.id !== socket.id) {
                 const sliderDiv = document.createElement('div');
                 sliderDiv.className = 'volume-control';
@@ -312,6 +393,12 @@ function setupSocketEvents() {
         if (video) video.remove();
     });
 
+    // NEW: Handle stop screen share signal
+    socket.on('user-stopped-screen-share', (userId) => {
+        const video = document.getElementById(`video-${userId}`);
+        if (video) video.remove();
+    });
+
     socket.on('offer', async (payload) => {
         // If we already have a peer, we might be renegotiating (screen share)
         let peer = peers[payload.caller];
@@ -349,7 +436,6 @@ function createPeer(targetId) {
     if (myStream) {
         myStream.getTracks().forEach(track => peer.addTrack(track, myStream));
     }
-    // Note: If screen sharing started BEFORE this user joined, we should add that track too.
     if (myScreenStream) {
         myScreenStream.getTracks().forEach(track => peer.addTrack(track, myScreenStream));
     }
@@ -374,14 +460,7 @@ function createPeer(targetId) {
             }
             document.body.appendChild(audio);
         } else if (track.kind === 'video') {
-            let video = document.getElementById(`video-${targetId}`);
-            if (!video) {
-                video = document.createElement('video');
-                video.id = `video-${targetId}`;
-                video.autoplay = true;
-                videoGrid.appendChild(video);
-            }
-            video.srcObject = stream;
+            addVideoStream(stream, targetId);
         }
     };
 
@@ -401,7 +480,6 @@ function createPeer(targetId) {
 function connectToNewUser(userId, stream) {
     const peer = createPeer(userId);
     peers[userId] = peer;
-    // Negotiation needed will fire if tracks added
     if (stream) {
         peer.createOffer().then(offer => {
             peer.setLocalDescription(offer);
