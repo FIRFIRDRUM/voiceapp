@@ -2,11 +2,24 @@
   "name": "voice_chat_app",
   "version": "1.0.0",
   "description": "",
-  "main": "server.js",
+  "main": "main.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node server.js",
-    "share": "npx localtunnel --port 3000"
+    "start": "electron .",
+    "share": "npx localtunnel --port 3000",
+    "build": "electron-builder"
+  },
+  "build": {
+    "appId": "com.voicechatapp",
+    "files": [
+      "public/**/*",
+      "main.js",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "public/icon.png"
+    }
   },
   "keywords": [],
   "author": "",
@@ -15,5 +28,9 @@
     "express": "^5.2.1",
     "localtunnel": "^2.0.2",
     "socket.io": "^4.8.1"
+  },
+  "devDependencies": {
+    "electron": "^39.2.6",
+    "electron-builder": "^26.0.12"
   }
 }
