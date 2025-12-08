@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sesli Konuşma Uygulaması</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="script.js" defer></script>
+</head>
+
+<body>
+    <div class="container">
+        <!-- 1. LOGIN SCREEN -->
+        <div id="login-screen">
+            <h1>Sesli Sohbet Giriş</h1>
+            <input type="text" id="username-input" placeholder="Kullanıcı Adı" autofocus>
+            <button id="login-btn">Giriş Yap</button>
+        </div>
+
+        <!-- 2. LOBBY SCREEN -->
+        <div id="lobby-screen" class="hidden">
+            <h1>Oda Seçimi</h1>
+            <div class="room-list">
+                <button class="room-btn" data-room="oda1">Oda 1</button>
+                <button class="room-btn" data-room="oda2">Oda 2</button>
+                <button class="room-btn" data-room="oda3">Oda 3</button>
+            </div>
+        </div>
+
+        <!-- 3. ROOM SCREEN -->
+        <div id="room-screen" class="hidden">
+            <div class="room-header">
+                <h2>Oda: <span id="current-room-name"></span></h2>
+                <button id="leave-btn" class="mini-btn">Çıkış</button>
+            </div>
+
+            <div class="main-content">
+                <!-- User List Sidebar -->
+                <div class="sidebar">
+                    <h3>Kullanıcılar</h3>
+                    <ul id="user-list"></ul>
+                </div>
+
+                <!-- Chat & Controls -->
+                <div class="chat-area">
+                    <div id="chat-messages"></div>
+                    <form id="chat-form">
+                        <input type="text" id="msg-input" placeholder="Mesaj yaz..." autocomplete="off">
+                        <button type="submit">Gönder</button>
+                    </form>
+                    <div class="controls">
+                        <button id="mute-btn" class="control-btn">Mikrofon Açık</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

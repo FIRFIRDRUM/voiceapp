@@ -1,0 +1,19 @@
+{
+  "name": "voice_chat_app",
+  "version": "1.0.0",
+  "description": "",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js",
+    "share": "npx localtunnel --port 3000"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^5.2.1",
+    "localtunnel": "^2.0.2",
+    "socket.io": "^4.8.1"
+  }
+}
