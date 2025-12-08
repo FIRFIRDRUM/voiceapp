@@ -7,13 +7,17 @@ const path = require('path');
 // Serve static files from 'public' directory
 app.use(express.static(path.join(__dirname, 'public')));
 
-const users = {}; // { socketId: { username, room } }
+const users = {}; // { socketId: { username, room, color } }
 
 const getUsersInRoom = (roomId) => {
     const usersInRoom = [];
     for (const id in users) {
         if (users[id].room === roomId) {
-            usersInRoom.push({ id, username: users[id].username });
+            usersInRoom.push({
+                id,
+                username: users[id].username,
+                color: users[id].color
+            });
         }
     }
     return usersInRoom;
@@ -24,18 +28,27 @@ io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
 
     // Join a specific room
-    socket.on('join-room', (roomId, username) => {
+    socket.on('join-room', (roomId, payload) => {
+        let username = payload;
+        let color = '#ffffff';
+
+        // Handle object payload (new client) or string (old client fallback)
+        if (typeof payload === 'object') {
+            username = payload.username;
+            color = payload.color;
+        }
+
         console.log(`User ${username} (${socket.id}) joined room ${roomId}`);
 
         // Store user info
-        users[socket.id] = { username, room: roomId };
+        users[socket.id] = { username, room: roomId, color };
 
         socket.join(roomId);
 
         // Notify others in the room for WebRTC connection
         socket.to(roomId).emit('user-connected', socket.id); // For signaling
 
-        // Broadcast updated user list to everyone in the room (including self)
+        // Broadcast updated user list
         io.to(roomId).emit('update-user-list', getUsersInRoom(roomId));
 
         // System message
@@ -83,7 +96,8 @@ io.on('connection', (socket) => {
                 io.to(user.room).emit('chat-message', {
                     username: user.username,
                     text: text,
-                    type: 'user'
+                    type: 'user',
+                    color: user.color
                 });
             }
         });
