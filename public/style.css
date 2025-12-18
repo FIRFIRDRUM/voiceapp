@@ -1,8 +1,14 @@
 /* RESET & CORE */
 * {
     box-sizing: border-box;
-    user-select: none;
+    /* user-select: none;  <-- REMOVED to allow interactions explicitly */
     /* App-like feel */
+}
+
+/* Ensure buttons are clickable */
+button {
+    -webkit-app-region: no-drag;
+    cursor: pointer;
 }
 
 body {
@@ -76,6 +82,11 @@ body {
     display: flex;
     flex-direction: column;
     overflow-y: auto;
+    position: relative;
+    z-index: 50;
+    /* Ensure above background */
+    -webkit-app-region: no-drag;
+    /* Ensure clickable */
 }
 
 .sidebar h3 {
@@ -115,36 +126,102 @@ body {
 
 .room-avatars {
     display: flex;
-    gap: 5px;
-    flex-wrap: wrap;
-    min-height: 24px;
-    /* Space for avatars */
+    flex-direction: column;
+    /* Vertical stack */
+    gap: 8px;
+    /* Space between users */
+    margin-top: 5px;
+    padding-left: 5px;
+}
+
+.mini-user-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.85rem;
+    color: #ccc;
 }
 
 .mini-avatar {
     width: 24px;
     height: 24px;
     border-radius: 50%;
-    border: 2px solid #1a1a1a;
+    border: 1px solid #444;
     object-fit: cover;
 }
 
-/* USER PROFILE SUMMARY (Bottom Left) */
+/* USER PROFILE SUMMARY (Bottom Left) -> Now Top Left */
 .user-profile-summary {
+    padding-bottom: 15px;
+    border-bottom: 1px solid #333;
+    margin-bottom: 15px;
+    width: 100%;
+}
+
+.profile-row {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding-bottom: 20px;
-    border-bottom: 1px solid #333;
-    margin-bottom: 20px;
+    margin-bottom: 10px;
 }
 
 .avatar-mini {
-    width: 32px;
-    height: 32px;
+    width: 40px;
+    height: 40px;
     border-radius: 50%;
     object-fit: cover;
+    border: 2px solid #333;
 }
+
+.user-info-col {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+#my-username-display {
+    font-weight: 700;
+    font-size: 0.95rem;
+}
+
+.user-controls-row {
+    display: flex;
+    gap: 5px;
+}
+
+.control-icon-btn {
+    background: #252525;
+    border: none;
+    color: #aaa;
+    width: 28px;
+    height: 28px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 0.8rem;
+    transition: all 0.2s;
+    padding: 0;
+    /* Override default */
+}
+
+.control-icon-btn:hover {
+    background: #333;
+    color: white;
+}
+
+.control-icon-btn.active-state {
+    /* Normal state usually */
+}
+
+.control-icon-btn.muted-state {
+    color: #ff4444;
+    position: relative;
+}
+
+/* Strikethrough effect via psuedo or just icon change */
+/* We will handle icon change in JS mainly, but color here */
 
 
 /* MAIN CONTENT AREA */

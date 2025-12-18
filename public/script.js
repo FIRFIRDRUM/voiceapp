@@ -229,16 +229,24 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     div.appendChild(titleRow);
 
-                    // 3. Build Avatars
+                    // 3. Build Avatars (Vertical List)
                     const avatarDiv = document.createElement('div');
                     avatarDiv.className = 'room-avatars';
                     if (Array.isArray(usersInRoom)) {
-                        usersInRoom.slice(0, 5).forEach(u => {
+                        usersInRoom.forEach(u => {
+                            const row = document.createElement('div');
+                            row.className = 'mini-user-row';
+
                             const img = document.createElement('img');
                             img.src = u.avatar;
                             img.className = 'mini-avatar';
-                            img.title = u.username;
-                            avatarDiv.appendChild(img);
+
+                            const nameSpan = document.createElement('span');
+                            nameSpan.innerText = u.username;
+
+                            row.appendChild(img);
+                            row.appendChild(nameSpan);
+                            avatarDiv.appendChild(row);
                         });
                     }
                     div.appendChild(avatarDiv);
@@ -251,12 +259,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     roomListContainer.appendChild(div);
                 }
+            } catch (e) {
+                console.error("Room Render Error:", e);
+                if (roomListContainer) roomListContainer.innerHTML = '<div style="color:red;">Liste hatası! Lütfen yenileyin.</div>';
             }
-        } catch (e) {
-            console.error("Room Render Error:", e);
-            if (roomListContainer) roomListContainer.innerHTML = '<div style="color:red;">Liste hatası! Lütfen yenileyin.</div>';
-        }
-    });
+        });
 
     let pendingRoom = null;
     async function joinRoom(roomName, password = null) {
@@ -291,6 +298,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Password Required
     socket.on('password-required', (data) => {
+        // If we already sent a password (and it was wrong), pendingRoom might still be set
+        // Ideally we show "Wrong Password"
+        if (pendingRoom === data.roomId && document.getElementById('room-pass-input').value !== '') {
+            alert("Hatalı Şifre!");
+            document.getElementById('room-pass-input').value = '';
+        }
+
         pendingRoom = data.roomId;
         if (passwordModal) passwordModal.classList.remove('hidden');
     });
@@ -299,9 +313,23 @@ document.addEventListener('DOMContentLoaded', () => {
     if (submitPassBtn) {
         submitPassBtn.addEventListener('click', () => {
             const pass = document.getElementById('room-pass-input').value;
-            if (passwordModal) passwordModal.classList.add('hidden');
+            if (passwordModal) passwordModal.classList.add('hidden'); // Hide momentarily, will reappear if wrong
             if (pendingRoom && pass) {
                 joinRoom(pendingRoom, pass);
+            }
+        });
+    }
+
+    // CHAT FORM FIX
+    const chatForm = document.getElementById('chat-form');
+    if (chatForm) {
+        chatForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const input = document.getElementById('msg-input');
+            const text = input.value.trim();
+            if (text) {
+                socket.emit('send-chat-message', text);
+                input.value = '';
             }
         });
     }
