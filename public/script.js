@@ -95,25 +95,43 @@ document.getElementById('login-btn').addEventListener('click', async () => {
     if (!user) return alert("Kullanıcı adı gerekli");
 
     myState.username = user;
-    myState.adminKey = adminKeyInput.value.trim(); // Grab key
+    myState.adminKey = adminKeyInput.value.trim();
     if (avatarPreview.src) myState.avatar = avatarPreview.src;
 
     localStorage.setItem('chat_username', myState.username);
     localStorage.setItem('chat_avatar', myState.avatar);
     localStorage.setItem('chat_color', myState.color);
 
-    loginOverlay.classList.add('hidden');
-    myAvatarPreviewMini.src = myState.avatar;
-    myAvatarPreviewMini.classList.remove('hidden');
-    myUsernameDisplay.innerText = user;
-    myUsernameDisplay.style.color = myState.color;
+    // EMIT LOGIN
+    socket.emit('login', {
+        username: myState.username,
+        avatar: myState.avatar,
+        adminKey: myState.adminKey
+    });
 
     try {
         myState.stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
         setupAudioControls();
         setupAudioAnalysis(myState.stream);
     } catch (e) {
-        alert("Mikrofon hatası: " + e.message);
+        console.error(e);
+        alert("Mikrofon hatası (ancak giriş yapılıyor): " + e.message);
+    }
+});
+
+socket.on('login-success', (data) => {
+    myState.role = data.role;
+
+    // UI Updates
+    loginOverlay.classList.add('hidden');
+    myAvatarPreviewMini.src = myState.avatar;
+    myAvatarPreviewMini.classList.remove('hidden');
+    myUsernameDisplay.innerText = myState.username;
+    myUsernameDisplay.style.color = myState.color;
+
+    if (myState.role === 'admin') {
+        document.getElementById('my-role-badge').style.display = 'inline';
+        btnBanList.classList.remove('hidden');
     }
 });
 
@@ -143,16 +161,14 @@ socket.on('room-list-update', (roomState) => {
         // Settings Icon (Admin Only)
         let settingsIcon = '';
         if (myState.role === 'admin') {
-            settingsIcon = `<span style="float:right; cursor:pointer;" onclick="openRoomConfig('${roomName}', event)">⚙️</span>`;
+            settingsIcon = `<span onclick="openRoomConfig('${roomName}', event)" style="cursor:pointer; padding:0 5px;">⚙️</span>`;
         }
 
-        let avatarsHtml = '';
-        usersInRoom.slice(0, 5).forEach(u => {
-            avatarsHtml += `<img src="${u.avatar}" class="mini-avatar" title="${u.username}">`;
-        });
-
         div.innerHTML = `
-            <div class="room-name">${roomName}${lockedIcon}${settingsIcon}</div>
+            <div class="room-name" style="display:flex; justify-content:space-between; align-items:center;">
+                <span>${roomName} ${lockedIcon}</span>
+                ${settingsIcon}
+            </div>
             <div class="room-avatars">${avatarsHtml}</div>
         `;
 
