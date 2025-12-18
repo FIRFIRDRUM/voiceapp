@@ -259,11 +259,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     roomListContainer.appendChild(div);
                 }
-            } catch (e) {
-                console.error("Room Render Error:", e);
-                if (roomListContainer) roomListContainer.innerHTML = '<div style="color:red;">Liste hatası! Lütfen yenileyin.</div>';
             }
-        });
+        } catch (e) {
+            console.error("Room Render Error:", e);
+            if (roomListContainer) roomListContainer.innerHTML = '<div style="color:red;">Liste hatası! Lütfen yenileyin.</div>';
+        }
+    });
 
     let pendingRoom = null;
     async function joinRoom(roomName, password = null) {
