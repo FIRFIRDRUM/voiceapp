@@ -253,6 +253,11 @@ io.on('connection', (socket) => {
     });
 
     // --- BAN MANAGEMENT ---
+    socket.on('get-rooms', () => {
+        socket.emit('room-list-update', getGlobalRoomState());
+        socket.emit('room-config-update', roomConfigs);
+    });
+
     socket.on('get-ban-list', () => {
         const executor = users[socket.id];
         if (executor && executor.role === 'admin') {
