@@ -75,6 +75,31 @@ io.on('connection', (socket) => {
     socket.emit('room-config-update', roomConfigs);
 
 
+    // --- LOGIN ---
+    socket.on('login', (payload) => {
+        let { username, avatar, adminKey } = payload;
+
+        if (bannedUsers.has(username)) {
+            socket.emit('banned', { reason: 'Sunucudan yasaklandınız.' });
+            return;
+        }
+
+        let role = 'user';
+        if (adminKey === ADMIN_KEY) {
+            role = 'admin';
+        }
+
+        // Store prompt user data (initially no room)
+        users[socket.id] = { username, avatar, role, room: null, color: '#fff' };
+
+        // Confirm
+        socket.emit('login-success', { role, username });
+
+        // Refresh Lists so Admin UI updates immediately
+        socket.emit('room-list-update', getGlobalRoomState());
+        socket.emit('room-config-update', roomConfigs);
+    });
+
     // --- JOIN ROOM ---
     socket.on('join-room', (roomId, payload) => {
         // payload: { username, avatar, color, adminKey? , password? }
