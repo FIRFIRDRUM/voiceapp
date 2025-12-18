@@ -4,10 +4,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Voice App</title>
-    <script src="socket.io.min.js"></script>
+    <title>GFVoice</title>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script src="script.js" defer></script>
-    <script src="https://kit.fontawesome.com/a076d05399.js" crossorigin="anonymous"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
@@ -106,7 +106,7 @@
 
     <!-- CUSTOM TITLE BAR -->
     <div class="title-bar">
-        <div class="app-title">VoiceChat Pro <span id="my-role-badge"
+        <div class="app-title">GFVoice <span id="my-role-badge"
                 style="display:none; color:#4CAF50; font-size:0.7rem; margin-left:10px;">[ADMIN]</span></div>
         <div class="window-controls">
             <button id="min-btn">-</button>
@@ -120,8 +120,22 @@
         <!-- SIDEBAR -->
         <div class="sidebar">
             <div class="user-profile-summary">
-                <img id="my-avatar-preview-mini" src="" class="avatar-mini hidden">
-                <span id="my-username-display"></span>
+                <div class="profile-row">
+                    <img id="my-avatar-preview-mini" src="" class="avatar-mini hidden">
+                    <div class="user-info-col">
+                        <span id="my-username-display"></span>
+                    </div>
+                </div>
+                <!-- Small Controls Under Name -->
+                <div class="user-controls-row">
+                    <button id="mic-btn" class="control-icon-btn" title="Mikrofon"><i
+                            class="fas fa-microphone"></i></button>
+                    <button id="deafen-btn" class="control-icon-btn" title="Sesi Kapat"><i
+                            class="fas fa-headphones"></i></button>
+                    <button id="share-screen-btn" class="control-icon-btn" title="Ekran Paylaş"><i
+                            class="fas fa-desktop"></i></button>
+                    <!-- Settings moved here too? -->
+                </div>
             </div>
             <h3>ODALAR</h3>
             <div id="room-list-container"></div>
@@ -138,38 +152,10 @@
             <div id="context-menu" class="context-menu hidden">
                 <div class="context-item" id="ctx-promote">⭐ Yetki Ver (Admin)</div>
                 <div class="context-divider"></div>
-                <div class="context-item" id="ctx-mute">🎤 Sustur</div>
+                <div class="context-item" id="ctx-mute">🎤 Sustur (Mute)</div>
+                <div class="context-item" id="ctx-unmute">🔊 Sesi Aç (Unmute)</div>
                 <div class="context-item" id="ctx-kick">👢 Kick (At)</div>
                 <div class="context-item" id="ctx-ban" style="color:#ef5350;">🚫 Ban (Yasakla)</div>
-            </div>
-
-            <!-- LOGIN OVERLAY -->
-            <div id="login-overlay" class="overlay">
-                <div class="login-card">
-                    <h2>Hoşgeldiniz</h2>
-
-                    <div class="avatar-selection">
-                        <div style="position: relative; cursor: pointer;"
-                            onclick="document.getElementById('avatar-file-input').click()">
-                            <img id="avatar-preview" src="https://cdn-icons-png.flaticon.com/512/847/847969.png"
-                                alt="Avatar">
-                            <div
-                                style="position: absolute; bottom: 0; right: 0; background: #4CAF50; border-radius: 50%; padding: 5px;">
-                                <i class="fas fa-camera" style="color: white; font-size: 12px;">📷</i>
-                            </div>
-                        </div>
-                        <input type="file" id="avatar-file-input" accept="image/*" hidden>
-                        <p style="font-size: 0.8rem; color: #888; margin-top: 5px;">Fotoğraf değiştirmek için tıklayın
-                        </p>
-                    </div>
-
-                    <input type="text" id="username-input" placeholder="Kullanıcı Adı" maxlength="15">
-
-                    <input type="password" id="admin-key-input" class="admin-key-input"
-                        placeholder="Admin Anahtarı (Opsiyonel)">
-
-                    <button id="login-btn" style="margin-top:15px;">Giriş Yap</button>
-                </div>
             </div>
 
             <!-- PASSWORD PROMPT MODAL -->
@@ -177,6 +163,8 @@
                 <div class="modal-box" style="width:300px; text-align:center;">
                     <h3>Oda Şifresi</h3>
                     <input type="password" id="room-pass-input" placeholder="Şifre Giriniz">
+                    <p id="password-error" class="hidden" style="color:#ff4444; font-size:0.9rem; margin:10px 0;">Hatalı
+                        Şifre!</p>
                     <button id="btn-submit-pass">Onayla</button>
                     <button onclick="document.getElementById('password-modal').classList.add('hidden')"
                         style="background:#555; margin-top:10px;">İptal</button>
@@ -236,13 +224,37 @@
                     </div>
                 </div>
 
-                <!-- BOTTOM CONTROLS -->
-                <div class="bottom-controls">
-                    <button id="mute-btn" class="control-btn secondary">🎤 Mikrofon Açık</button>
-                    <button id="share-screen-btn" class="control-btn accent">🖥️ Ekran Paylaş</button>
-                </div>
+                <!-- BOTTOM CONTROLS REMOVED -->
             </div>
 
+        </div>
+    </div>
+
+    <!-- LOGIN OVERLAY MOVED HERE -->
+    <div id="login-overlay" class="overlay">
+        <div class="login-card">
+            <h2>Hoşgeldiniz</h2>
+
+            <div class="avatar-selection">
+                <div style="position: relative; cursor: pointer;"
+                    onclick="document.getElementById('avatar-file-input').click()">
+                    <img id="avatar-preview" src="https://cdn-icons-png.flaticon.com/512/847/847969.png" alt="Avatar">
+                    <div
+                        style="position: absolute; bottom: 0; right: 0; background: #4CAF50; border-radius: 50%; padding: 5px;">
+                        <i class="fas fa-camera" style="color: white; font-size: 12px;">📷</i>
+                    </div>
+                </div>
+                <input type="file" id="avatar-file-input" accept="image/*" hidden>
+                <p style="font-size: 0.8rem; color: #888; margin-top: 5px;">Fotoğraf değiştirmek için tıklayın
+                </p>
+            </div>
+
+            <input type="text" id="username-input" placeholder="Kullanıcı Adı" maxlength="15">
+
+            <input type="password" id="admin-key-input" class="admin-key-input"
+                placeholder="Admin Anahtarı (Opsiyonel)">
+
+            <button id="login-btn" style="margin-top:15px;">Giriş Yap</button>
         </div>
     </div>
 
