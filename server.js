@@ -17,7 +17,7 @@ const users = {}; // { socketId: { username, room, color, avatar, role: 'user'|'
 // Default Rooms with Config
 const DEFAULT_ROOMS = ['Genel Sohbet', 'Oyun Odası', 'Müzik Odası', 'AFK'];
 const roomConfigs = {};
-DEFAULT_ROOMS.forEach(r => roomConfigs[r] = { password: null });
+DEFAULT_ROOMS.forEach(r => roomConfigs[r] = { password: null, isHidden: false });
 
 const bannedUsers = new Set(); // Stores banned usernames or IPs (using usernames for simplicity as per request)
 const ADMIN_KEY = "admin123";  // Simple key for initial admin claim
@@ -42,6 +42,11 @@ const getGlobalRoomState = () => {
     for (const id in users) {
         const u = users[id];
         if (u.room && state[u.room]) {
+            // IF ROOM IS HIDDEN, DO NOT PUSH USER TO PUBLIC STATE
+            if (roomConfigs[u.room] && roomConfigs[u.room].isHidden) {
+                continue;
+            }
+
             state[u.room].push({
                 username: u.username,
                 avatar: u.avatar,
@@ -316,7 +321,10 @@ io.on('connection', (socket) => {
         // If Name Changed
         if (oldName !== newName) {
             // copy config
-            roomConfigs[newName] = { password: data.password || null };
+            roomConfigs[newName] = {
+                password: data.password || null,
+                isHidden: !!data.isHidden
+            };
             delete roomConfigs[oldName];
 
             // Move users? OR just let them stay in "phantom" room until they move?
@@ -333,8 +341,9 @@ io.on('connection', (socket) => {
                 }
             }
         } else {
-            // Just update password
+            // Just update password & hidden status
             roomConfigs[oldName].password = data.password || null;
+            if (data.isHidden !== undefined) roomConfigs[oldName].isHidden = !!data.isHidden;
         }
 
         io.emit('room-config-update', roomConfigs);

@@ -248,7 +248,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     const nameSpan = document.createElement('span');
                     let lockedIcon = '';
-                    if (roomConfigs[roomName]?.password) lockedIcon = ' \uD83D\uDD12'; // Lock emoji
+                    if (roomConfigs[roomName]?.password) lockedIcon += ' 🔒';
+                    if (roomConfigs[roomName]?.isHidden) lockedIcon += ' 👻';
                     nameSpan.innerText = roomName + lockedIcon;
                     titleRow.appendChild(nameSpan);
 
@@ -428,12 +429,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const title = document.getElementById('config-room-name-title');
         const nameInput = document.getElementById('conf-room-name');
         const passInput = document.getElementById('conf-room-pass');
+        const hiddenInput = document.getElementById('conf-room-hidden');
         if (title) title.innerText = roomName + ' Ayarlar\u0131';
         if (nameInput) {
             nameInput.value = roomName;
             nameInput.dataset.original = roomName;
         }
         if (passInput) passInput.value = '';
+        if (hiddenInput) {
+            hiddenInput.checked = roomConfigs[roomName]?.isHidden || false;
+        }
         if (roomConfigModal) roomConfigModal.classList.remove('hidden');
     };
 
@@ -445,10 +450,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const original = nameInput.dataset.original;
             const newName = nameInput.value.trim();
             const pass = passInput.value.trim();
+            const isHidden = document.getElementById('conf-room-hidden')?.checked;
             socket.emit('update-room-config', {
                 roomId: original,
                 newName: newName,
-                password: pass || null
+                password: pass || null,
+                isHidden: isHidden
             });
             if (roomConfigModal) roomConfigModal.classList.add('hidden');
         });
