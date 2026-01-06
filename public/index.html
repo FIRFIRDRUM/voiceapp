@@ -136,8 +136,6 @@
                             class="fas fa-desktop"></i></button>
                     <button id="settings-btn" class="control-icon-btn" title="Ayarlar"><i
                             class="fas fa-cog"></i></button>
-                    <button id="settings-btn" class="control-icon-btn" title="Ayarlar"><i
-                            class="fas fa-cog"></i></button>
                 </div>
             </div>
             <h3>ODALAR</h3>
@@ -258,6 +256,43 @@
                 </div>
             </div>
 
+
+            <!-- SETTINGS MODAL -->
+            <div id="settings-modal" class="modal-overlay hidden">
+                <div class="modal-box">
+                    <div class="modal-header">
+                        <span>Ayarlar</span>
+                        <span style="cursor:pointer;"
+                            onclick="document.getElementById('settings-modal').classList.add('hidden')">X</span>
+                    </div>
+
+                    <h4 style="margin:0 0 10px 0; color:#4CAF50;">Ses Giriş Modu</h4>
+
+                    <div style="margin-bottom:15px;">
+                        <input type="radio" id="mode-voice-activity" name="input-mode" value="voice-activity" checked>
+                        <label for="mode-voice-activity">Sürekli Açık (Otomatik)</label>
+                    </div>
+
+                    <div style="margin-bottom:15px;">
+                        <input type="radio" id="mode-ptt" name="input-mode" value="ptt">
+                        <label for="mode-ptt">Bas Konuş (Push-to-Talk)</label>
+                    </div>
+
+                    <div id="ptt-config-area" class="hidden"
+                        style="margin-left:20px; padding:10px; border-left:2px solid #555;">
+                        <p style="font-size:0.9rem; color:#ccc;">Atanan Tuş:</p>
+                        <button id="btn-bind-key"
+                            style="background:#555; color:white; border:1px solid #777; padding:5px 15px;">Tuş Ata:
+                            SPACE</button>
+                        <p style="font-size:0.8rem; color:#888; margin-top:5px;">Değiştirmek için butona tıkla ve bir
+                            tuşa bas.</p>
+                    </div>
+
+                    <div style="text-align:right; margin-top:20px;">
+                        <button id="btn-save-settings" style="background:#4CAF50;">Kaydet</button>
+                    </div>
+                </div>
+            </div>
 
             <!-- ACTIVE ROOM VIEW -->
             <div id="active-room-view" class="hidden">
