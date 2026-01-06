@@ -1,4 +1,5 @@
 const { app, BrowserWindow, Tray, Menu, Notification, dialog, ipcMain, desktopCapturer } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const { fork } = require('child_process');
 
@@ -13,18 +14,11 @@ if (!gotTheLock) {
     app.quit();
 } else {
     app.on('second-instance', (event, commandLine, workingDirectory) => {
-        // Someone tried to run a second instance, we should focus our window.
         if (mainWindow) {
             if (mainWindow.isMinimized()) mainWindow.restore();
-            // If hidden in tray
             if (!mainWindow.isVisible()) mainWindow.show();
             mainWindow.focus();
-
-            dialog.showMessageBox(mainWindow, {
-                type: 'warning',
-                title: 'Uyarı',
-                message: 'Uygulama şuan çalışıyor. Gizli Simgeleri kontrol edin.'
-            });
+            dialog.showMessageBox(mainWindow, { type: 'warning', title: 'Uyarı', message: 'Uygulama zaten çalışıyor.' });
         }
     });
 
@@ -33,20 +27,29 @@ if (!gotTheLock) {
         createWindow();
         createTray();
 
+        // CHECK FOR UPDATES
+        autoUpdater.checkForUpdatesAndNotify();
+
         app.on('activate', () => {
             if (BrowserWindow.getAllWindows().length === 0) createWindow();
         });
     });
 }
+// --- AUTO UPDATER EVENTS ---
+autoUpdater.on('update-available', () => {
+    mainWindow.webContents.send('update_available');
+});
+autoUpdater.on('update-downloaded', () => {
+    mainWindow.webContents.send('update_downloaded');
+});
+ipcMain.on('restart_app', () => {
+    autoUpdater.quitAndInstall();
+});
 
 function startServer() {
     const serverPath = path.join(__dirname, 'server.js');
     console.log("Starting server from:", serverPath);
-
-    serverProcess = fork(serverPath, [], {
-        silent: true
-    });
-
+    serverProcess = fork(serverPath, [], { silent: true });
     serverProcess.stdout.on('data', (data) => {
         console.log(`[Server]: ${data}`);
     });

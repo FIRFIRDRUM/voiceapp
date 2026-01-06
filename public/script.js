@@ -99,6 +99,28 @@ document.addEventListener('DOMContentLoaded', () => {
     if (minBtn) minBtn.addEventListener('click', () => ipcRenderer?.send('minimize-app'));
     if (closeBtn) closeBtn.addEventListener('click', () => ipcRenderer?.send('close-app'));
 
+    // --- AUTO UPDATE HANDLERS ---
+    if (ipcRenderer) {
+        const updateNotif = document.getElementById('update-notification');
+        const updateMsg = document.getElementById('update-message');
+        const restartBtn = document.getElementById('restart-btn');
+
+        ipcRenderer.on('update_available', () => {
+            ipcRenderer.removeAllListeners('update_available');
+            updateMsg.innerText = "Yeni bir güncelleme bulundu. İndiriliyor...";
+            updateNotif.classList.remove('hidden');
+        });
+
+        ipcRenderer.on('update_downloaded', () => {
+            ipcRenderer.removeAllListeners('update_downloaded');
+            updateMsg.innerText = "Güncelleme indirildi. Yüklemek için yeniden başlatın.";
+            restartBtn.classList.remove('hidden');
+            restartBtn.addEventListener('click', () => {
+                ipcRenderer.send('restart_app');
+            });
+        });
+    }
+
     function getRandomColor() {
         const letters = '89ABCDEF';
         let color = '#';

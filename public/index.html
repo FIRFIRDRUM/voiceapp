@@ -155,9 +155,10 @@
                     style="width:100%; box-sizing:border-box; margin-bottom:5px;">
                 <button id="btn-connect-remote" style="width:100%; font-size:0.8rem;">Bağlan</button>
                 <div id="remote-status" style="font-size:0.7rem; color:#aaa; margin-top:5px;"></div>
-                
+
                 <!-- FAILSAFE BUTTON -->
-                <button id="btn-force-remote-view" style="width:100%; font-size:0.7rem; margin-top:5px; background:#333; color:#888;">
+                <button id="btn-force-remote-view"
+                    style="width:100%; font-size:0.7rem; margin-top:5px; background:#333; color:#888;">
                     <i class="fas fa-external-link-alt"></i> Pencereyi Zorla Aç
                 </button>
             </div>
@@ -215,6 +216,19 @@
                         <button id="btn-reject-conn" style="background:#f44336;">Reddet</button>
                     </div>
                 </div>
+            </div>
+
+            <!-- UPDATE NOTIFICATION -->
+            <div id="update-notification" class="hidden"
+                style="position:fixed; bottom:20px; right:20px; background:#333; padding:15px; border-radius:8px; border:1px solid #555; box-shadow:0 4px 10px rgba(0,0,0,0.5); z-index:10000; width:300px;">
+                <h4 style="margin:0 0 10px 0; color:#4CAF50;">Yeni Güncelleme Mevcut!</h4>
+                <p id="update-message" style="font-size:0.9rem; color:#ccc; margin-bottom:10px;">Yeni sürüm indiriliyor,
+                    lütfen bekleyin...</p>
+                <button id="restart-btn" class="hidden"
+                    style="width:100%; background:#2196F3; color:white; padding:8px; border:none; border-radius:4px; cursor:pointer;">Yeniden
+                    Başlat ve Yükle</button>
+                <button onclick="document.getElementById('update-notification').classList.add('hidden')"
+                    style="width:100%; background:transparent; border:1px solid #555; color:#aaa; padding:5px; border-radius:4px; margin-top:5px; cursor:pointer;">Gizle</button>
             </div>
 
             <!-- ROOM CONFIG MODAL -->

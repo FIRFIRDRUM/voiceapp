@@ -29,7 +29,18 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "FIRFIRDRUM",
+        "repo": "voiceapp"
+      }
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/FIRFIRDRUM/voiceapp.git"
   },
   "keywords": [],
   "author": "",
