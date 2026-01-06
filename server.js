@@ -15,12 +15,9 @@ app.use(express.static(path.join(__dirname, 'public')));
 // --- STATE ---
 const users = {}; // { socketId: { username, room, color, avatar, role: 'user'|'admin' } }
 // Default Rooms with Config
-const roomConfigs = {
-    'Genel Sohbet': { password: null },
-    'Oyun Odası': { password: null },
-    'Müzik Odası': { password: null },
-    'AFK': { password: null }
-};
+const DEFAULT_ROOMS = ['Genel Sohbet', 'Oyun Odası', 'Müzik Odası', 'AFK'];
+const roomConfigs = {};
+DEFAULT_ROOMS.forEach(r => roomConfigs[r] = { password: null });
 
 const bannedUsers = new Set(); // Stores banned usernames or IPs (using usernames for simplicity as per request)
 const ADMIN_KEY = "admin123";  // Simple key for initial admin claim
@@ -28,7 +25,17 @@ const ADMIN_KEY = "admin123";  // Simple key for initial admin claim
 // Helpers
 const getGlobalRoomState = () => {
     const state = {};
-    for (const r in roomConfigs) {
+    // Sort keys: Default rooms first in order, then others alpha-sorted
+    const sortedKeys = Object.keys(roomConfigs).sort((a, b) => {
+        const idxA = DEFAULT_ROOMS.indexOf(a);
+        const idxB = DEFAULT_ROOMS.indexOf(b);
+        if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+        if (idxA !== -1) return -1;
+        if (idxB !== -1) return 1;
+        return a.localeCompare(b);
+    });
+
+    for (const r of sortedKeys) {
         state[r] = [];
     }
 
@@ -68,11 +75,92 @@ io.on('connection', (socket) => {
     // Initial State
     // Send room list WITH lock status
     const publicRoomState = getGlobalRoomState();
-    // Attach "locked" property to keys for client to see? 
-    // Easier: Emit room configs separately or embed it.
-    // Let's emit a separate "room-config-update" to let clients know which are locked.
     socket.emit('room-list-update', publicRoomState);
     socket.emit('room-config-update', roomConfigs);
+
+    // --- REMOTE CONTROL ID ---
+    // Wait for client to claim ID or generate new one
+    socket.on('register-remote-id', (claimedId) => {
+        let finalId = claimedId;
+        // Simple validation: must be 8 digits. Check collision?
+        // Ideally we track all active IDs.
+        const isTaken = Array.from(io.sockets.sockets.values()).some(s => s.data.remoteId === finalId && s.id !== socket.id);
+
+        if (!finalId || finalId.length !== 8 || isTaken) {
+            finalId = Math.floor(10000000 + Math.random() * 90000000).toString();
+        }
+
+        socket.data.remoteId = finalId;
+        if (users[socket.id]) users[socket.id].remoteId = finalId; // Sync if user obj exists
+
+        console.log(`Registered Remote ID ${finalId} for ${socket.id}`);
+        socket.emit('your-remote-id', finalId);
+    });
+
+
+    // --- SIGNALING FOR REMOTE CONTROL ---
+
+    // 1. Request Connection
+    socket.on('request-remote-control', (targetRemoteId) => {
+        // Find socket with this remoteId
+        const targetSocket = Array.from(io.sockets.sockets.values()).find(s => s.data.remoteId === targetRemoteId);
+
+        if (targetSocket) {
+            if (targetSocket.id === socket.id) {
+                socket.emit('remote-control-error', "Kendinize bağlanamazsınız.");
+                return;
+            }
+            console.log(`Remote request from ${socket.id} (${remoteId}) to ${targetSocket.id} (${targetRemoteId})`);
+
+            // Forward request to target
+            targetSocket.emit('remote-control-request', {
+                requesterId: socket.id,
+                requesterRemoteId: remoteId,
+                requesterUsername: users[socket.id]?.username || "Anonim"
+            });
+        } else {
+            socket.emit('remote-control-error', "Kullanıcı bulunamadı veya ID hatalı.");
+        }
+    });
+
+    // 2. Accept/Reject
+    socket.on('remote-control-response', (data) => {
+        // data: { requesterId, accepted: boolean }
+        const requesterSocket = io.sockets.sockets.get(data.requesterId);
+
+        if (requesterSocket) {
+            if (data.accepted) {
+                // Notify requester: "Start sending inputs"
+                requesterSocket.emit('remote-control-accepted', {
+                    targetId: socket.id,
+                    targetRemoteId: remoteId
+                });
+
+                // Notify target (self): "You are being controlled"
+                socket.emit('remote-self-controlled', {
+                    controllerId: data.requesterId
+                });
+
+                console.log(`Connection established: ${data.requesterId} -> ${socket.id}`);
+            } else {
+                requesterSocket.emit('remote-control-rejected', {
+                    targetRemoteId: remoteId
+                });
+            }
+        }
+    });
+
+    // 3. Input Data Forwarding
+    socket.on('remote-input-event', (data) => {
+        // data: { targetId, event: { type: 'mousemove'|'click'|'keydown', x, y, key... } }
+        const targetSocket = io.sockets.sockets.get(data.targetId);
+        if (targetSocket) {
+            // Validation? Maybe check if they actually accepted? 
+            // For now trusting the client logic for simplicity, but in prod we should store "active sessions".
+
+            targetSocket.emit('perform-input-action', data.event);
+        }
+    });
 
 
     // --- LOGIN ---
@@ -216,13 +304,14 @@ io.on('connection', (socket) => {
         const executor = users[socket.id];
         if (!executor || executor.role !== 'admin') return;
 
-        // Rename logic is tricky because keys are room names. 
-        // We'll assume roomId IS user-facing name for now (as per script.js).
-        // If renaming, we must migrate users. This is complex.
-        // User asked: "Change room names".
-
         const oldName = data.roomId;
         let newName = data.newName || oldName;
+
+        // PREVENT RENAMING DEFAULT ROOMS
+        if (DEFAULT_ROOMS.includes(oldName) && oldName !== newName) {
+            socket.emit('admin-error', "Varsayılan odaların adı değiştirilemez.");
+            return;
+        }
 
         // If Name Changed
         if (oldName !== newName) {

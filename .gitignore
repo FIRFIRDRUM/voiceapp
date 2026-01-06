@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+*.tmp
+*.log
+mouse_control.exe
+mouse_control.pdb
+public/remote_logic_final.js
+public/remote_logic_fixed.js
+public/script_clean_utf8.js

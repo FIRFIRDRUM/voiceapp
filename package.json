@@ -1,24 +1,34 @@
 {
-  "name": "voice_chat_app",
+  "name": "omnivoice",
+  "productName": "OmniVoice",
   "version": "1.0.0",
-  "description": "",
+  "description": "OmniVoice Voice Chat Application",
   "main": "main.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "electron .",
+    "start": "set ELECTRON_RUN_AS_NODE= && electron .",
     "share": "npx localtunnel --port 3000",
-    "build": "electron-builder"
+    "build": "electron-builder",
+    "dist": "electron-builder"
   },
   "build": {
-    "appId": "com.voicechatapp",
+    "productName": "OmniVoice",
+    "appId": "com.omnisynex.omnivoice",
     "files": [
       "public/**/*",
       "main.js",
+      "server.js",
       "package.json"
     ],
     "win": {
       "target": "nsis",
       "icon": "public/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
     }
   },
   "keywords": [],
@@ -27,10 +37,11 @@
   "dependencies": {
     "express": "^5.2.1",
     "localtunnel": "^2.0.2",
-    "socket.io": "^4.8.1"
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.3"
   },
   "devDependencies": {
-    "electron": "^39.2.6",
+    "electron": "^33.0.0",
     "electron-builder": "^26.0.12"
   }
 }

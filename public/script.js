@@ -1,43 +1,72 @@
+﻿
 document.addEventListener('DOMContentLoaded', () => {
     console.log("DOM Loaded, Initializing App...");
 
-    // --- CLICK DEBUGGER (Temporary) ---
-    document.addEventListener('click', (e) => {
-        console.log('Clicked Element:', e.target, 'Classes:', e.target.className);
-    });
-
     // --- CONFIG & STATE ---
-    const socket = io('https://voiceapp-ecxg.onrender.com/', {
-        transports: ['websocket'],
-        reconnectionAttempts: 10
+    let socket;
+    try {
+        const ioClient = require('socket.io-client');
+        socket = ioClient('http://localhost:3000/', { transports: ['websocket'], reconnectionAttempts: 10 });
+        console.log("Socket initialized via require (Electron)");
+    } catch (e) {
+        console.log("Socket fallback to CDN");
+        socket = io('http://localhost:3000/', { transports: ['websocket'], reconnectionAttempts: 10 });
+    }
+
+    socket.on('connect_error', (err) => {
+        console.error("Socket Connection Error:", err);
+        alert("Sunucuya ba\u011flan\u0131lamad\u0131! L\u00fctfen uygulaman\u0131n a\u00e7\u0131k oldu\u011fundan emin olun.");
     });
 
-    // We keep global state to handle context menus
+    socket.on('error', (err) => { console.error("Socket Error:", err); });
+
+    // --- RECONNECTION LOGIC ---
+    socket.on('connect', () => {
+        console.log("Socket connected:", socket.id);
+
+        // --- REGISTER PERSISTENT REMOTE ID ---
+        const savedRemoteId = localStorage.getItem('my_remote_id');
+        if (savedRemoteId) {
+            console.log("Requesting previous Remote ID:", savedRemoteId);
+            socket.emit('register-remote-id', savedRemoteId);
+        } else {
+            socket.emit('register-remote-id', null); // Request new
+        }
+
+        if (myState.username && loginOverlay.classList.contains('hidden')) {
+            console.log("Reconnecting user:", myState.username);
+            myState.isReconnecting = true;
+            socket.emit('login', { username: myState.username, avatar: myState.avatar, adminKey: myState.adminKey });
+        }
+    });
+
+    // Global State
     let myState = {
         username: localStorage.getItem('chat_username') || '',
         avatar: localStorage.getItem('chat_avatar') || 'https://cdn-icons-png.flaticon.com/512/847/847969.png',
         color: localStorage.getItem('chat_color') || getRandomColor(),
-        adminKey: '',  // Entered in login
-        role: 'user',  // Standard user default
+        adminKey: '',
+        role: 'user',
         room: null,
         stream: null,
-        screenStream: null
+        screenStream: null,
+        isReconnecting: false
     };
 
-    // ... Imports ...
     const myPeer = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
     let ipcRenderer, desktopCapturer;
+
     try {
         const electron = require('electron');
         ipcRenderer = electron.ipcRenderer;
         desktopCapturer = electron.desktopCapturer;
     } catch (e) {
-        console.warn("Electron module not found");
+        console.warn("Electron module import issue:", e);
     }
 
     let peers = {};
     let audioContext;
-    let roomConfigs = {}; // Store { roomName: {password: string|null} }
+    let roomConfigs = {};
 
     // --- DOM ELEMENTS ---
     const loginOverlay = document.getElementById('login-overlay');
@@ -50,8 +79,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const avatarPreview = document.getElementById('avatar-preview');
     const usernameInput = document.getElementById('username-input');
     const adminKeyInput = document.getElementById('admin-key-input');
-
-    // Admin Elements
     const contextMenu = document.getElementById('context-menu');
     const banListModal = document.getElementById('ban-list-modal');
     const roomConfigModal = document.getElementById('room-config-modal');
@@ -75,7 +102,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return color;
     }
 
-    // --- 1. LOGIN ---
+    // --- LOGIN ---
     const fileInput = document.getElementById('avatar-file-input');
     if (fileInput) {
         fileInput.addEventListener('change', (e) => {
@@ -106,9 +133,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const loginBtn = document.getElementById('login-btn');
     if (loginBtn) {
         loginBtn.addEventListener('click', async () => {
-            console.log("Login btn clicked");
             const user = usernameInput.value.trim();
-            if (!user) return alert("Kullanıcı adı gerekli");
+            if (!user) return alert("Kullan\u0131c\u0131 ad\u0131 gerekli");
 
             myState.username = user;
             myState.adminKey = adminKeyInput.value.trim();
@@ -118,29 +144,34 @@ document.addEventListener('DOMContentLoaded', () => {
             localStorage.setItem('chat_avatar', myState.avatar);
             localStorage.setItem('chat_color', myState.color);
 
-            // EMIT LOGIN
-            socket.emit('login', {
-                username: myState.username,
-                avatar: myState.avatar,
-                adminKey: myState.adminKey
-            });
-
             try {
                 myState.stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
                 setupAudioControls();
                 setupAudioAnalysis(myState.stream);
             } catch (e) {
                 console.error(e);
-                alert("Mikrofon hatası (ancak giriş yapılıyor): " + e.message);
+                alert("Mikrofon hatas\u0131 (ancak giri\u015f yap\u0131l\u0131yor): " + e.message);
             }
+
+            if (!socket.connected) {
+                alert("HATA: Sunucu ile ba\u011flant\u0131 yok! Server kapal\u0131 olabilir.");
+            }
+
+            socket.emit('login', {
+                username: myState.username,
+                avatar: myState.avatar,
+                adminKey: myState.adminKey
+            });
         });
     }
 
     socket.on('login-success', (data) => {
         myState.role = data.role;
-        console.log("Logged in as:", myState.role);
+        if (myState.isReconnecting && myState.room) {
+            joinRoom(myState.room);
+            myState.isReconnecting = false;
+        }
 
-        // UI Updates
         if (loginOverlay) loginOverlay.classList.add('hidden');
         if (myAvatarPreviewMini) {
             myAvatarPreviewMini.src = myState.avatar;
@@ -151,7 +182,6 @@ document.addEventListener('DOMContentLoaded', () => {
             myUsernameDisplay.style.color = myState.color;
         }
 
-        // Reset Admin UI First
         const roleBadge = document.getElementById('my-role-badge');
         if (roleBadge) roleBadge.style.display = 'none';
         if (btnBanList) btnBanList.classList.add('hidden');
@@ -160,44 +190,30 @@ document.addEventListener('DOMContentLoaded', () => {
             if (roleBadge) roleBadge.style.display = 'inline';
             if (btnBanList) btnBanList.classList.remove('hidden');
         }
-
-        // Force Fetch Rooms
-        console.log("Login success, fetching rooms explicitly...");
         socket.emit('get-rooms');
     });
 
+    // --- ROOM LOGIC ---
+    socket.on('room-config-update', (configs) => { roomConfigs = configs; });
 
-    // --- 2. ROOM & ADMIN LOGIC ---
-
-    // Room Configs Update
-    socket.on('room-config-update', (configs) => {
-        console.log("Room configs updated");
-        roomConfigs = configs;
-    });
-
-    // Room List Update - REFACOR to DOM API for Safety
     socket.on('room-list-update', (roomState) => {
-        console.log("Room list received:", roomState);
         try {
             if (roomListContainer) {
                 roomListContainer.innerHTML = '';
                 if (!roomState || Object.keys(roomState).length === 0) {
-                    roomListContainer.innerHTML = '<div style="padding:10px; color:#666;">Oda listesi boş veya yükleniyor...</div>';
+                    roomListContainer.innerHTML = '<div style="padding:10px; color:#666;">Oda listesi bo\u015f...</div>';
                     return;
                 }
 
                 for (const [roomName, usersInRoom] of Object.entries(roomState)) {
                     const div = document.createElement('div');
                     div.className = 'room-item';
-
-                    // 1. Check Active Status
                     const amIHere = Array.isArray(usersInRoom) && usersInRoom.some(u => u.id === socket.id);
                     if (amIHere) {
                         div.classList.add('active');
                         myState.room = roomName;
                     }
 
-                    // 2. Build Title Row (Name + Lock + Settings)
                     const titleRow = document.createElement('div');
                     titleRow.className = 'room-name';
                     titleRow.style.display = 'flex';
@@ -205,45 +221,38 @@ document.addEventListener('DOMContentLoaded', () => {
                     titleRow.style.alignItems = 'center';
 
                     const nameSpan = document.createElement('span');
-                    // Check Lock
                     let lockedIcon = '';
-                    if (roomConfigs[roomName]?.password) lockedIcon = ' 🔒';
+                    if (roomConfigs[roomName]?.password) lockedIcon = ' \uD83D\uDD12'; // Lock emoji
                     nameSpan.innerText = roomName + lockedIcon;
                     titleRow.appendChild(nameSpan);
 
                     // Check Admin Settings
                     if (myState.role === 'admin') {
                         const settingsBtn = document.createElement('span');
-                        settingsBtn.innerText = '⚙️';
+                        // USE FONTAWESOME ICON HERE TO FIX ENCODING
+                        settingsBtn.innerHTML = '<i class="fas fa-cog"></i>';
                         settingsBtn.style.cursor = 'pointer';
                         settingsBtn.style.padding = '0 5px';
-                        settingsBtn.title = "Oda Ayarları";
-
-                        // CRITICALLY IMPORTANT: Explicit Listener
+                        settingsBtn.title = "Oda Ayarlar\u0131";
                         settingsBtn.onclick = (e) => {
-                            e.stopPropagation(); // Stop bubbling to room join
-                            console.log("Settings clicked for", roomName);
+                            e.stopPropagation();
                             openRoomConfig(roomName, e);
                         };
                         titleRow.appendChild(settingsBtn);
                     }
                     div.appendChild(titleRow);
 
-                    // 3. Build Avatars (Vertical List)
                     const avatarDiv = document.createElement('div');
                     avatarDiv.className = 'room-avatars';
                     if (Array.isArray(usersInRoom)) {
                         usersInRoom.forEach(u => {
                             const row = document.createElement('div');
                             row.className = 'mini-user-row';
-
                             const img = document.createElement('img');
                             img.src = u.avatar;
                             img.className = 'mini-avatar';
-
                             const nameSpan = document.createElement('span');
                             nameSpan.innerText = u.username;
-
                             row.appendChild(img);
                             row.appendChild(nameSpan);
                             avatarDiv.appendChild(row);
@@ -251,43 +260,29 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     div.appendChild(avatarDiv);
 
-                    // 4. Main Click -> Join
-                    div.onclick = (e) => {
-                        console.log("Room Item clicked:", roomName);
-                        joinRoom(roomName);
-                    };
-
+                    div.onclick = (e) => { joinRoom(roomName); };
                     roomListContainer.appendChild(div);
                 }
             }
         } catch (e) {
             console.error("Room Render Error:", e);
-            if (roomListContainer) roomListContainer.innerHTML = '<div style="color:red;">Liste hatası! Lütfen yenileyin.</div>';
         }
     });
 
     let pendingRoom = null;
     async function joinRoom(roomName, password = null) {
         if (myState.room === roomName && !password) return;
-
-        pendingRoom = roomName; // For password retry
-
-        // Clean UI if switching
+        pendingRoom = roomName;
         if (myState.room && myState.room !== roomName) {
             if (activeRoomView) activeRoomView.classList.add('hidden');
             if (videoGrid) videoGrid.innerHTML = '';
             if (chatMessages) chatMessages.innerHTML = '';
-            // Close peers
             Object.values(peers).forEach(p => p.close());
             peers = {};
             document.querySelectorAll('audio').forEach(a => a.remove());
         }
-
         const title = document.getElementById('current-room-title');
         if (title) title.innerText = roomName;
-
-        // Join
-        console.log("Emitting join-room:", roomName);
         socket.emit('join-room', roomName, {
             username: myState.username,
             avatar: myState.avatar,
@@ -297,15 +292,11 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Password Required
     socket.on('password-required', (data) => {
-        // If we already sent a password (and it was wrong), pendingRoom might still be set
-        // Ideally we show "Wrong Password"
         if (pendingRoom === data.roomId && document.getElementById('room-pass-input').value !== '') {
-            alert("Hatalı Şifre!");
+            alert("Hatal\u0131 \u015eifre!");
             document.getElementById('room-pass-input').value = '';
         }
-
         pendingRoom = data.roomId;
         if (passwordModal) passwordModal.classList.remove('hidden');
     });
@@ -314,14 +305,11 @@ document.addEventListener('DOMContentLoaded', () => {
     if (submitPassBtn) {
         submitPassBtn.addEventListener('click', () => {
             const pass = document.getElementById('room-pass-input').value;
-            if (passwordModal) passwordModal.classList.add('hidden'); // Hide momentarily, will reappear if wrong
-            if (pendingRoom && pass) {
-                joinRoom(pendingRoom, pass);
-            }
+            if (passwordModal) passwordModal.classList.add('hidden');
+            if (pendingRoom && pass) joinRoom(pendingRoom, pass);
         });
     }
 
-    // CHAT FORM FIX
     const chatForm = document.getElementById('chat-form');
     if (chatForm) {
         chatForm.addEventListener('submit', (e) => {
@@ -335,13 +323,10 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Join Success & Role Assignment
     socket.on('joined-success', (data) => {
-        console.log("Joined success:", data);
         myState.role = data.role;
         myState.room = data.roomId;
         if (activeRoomView) activeRoomView.classList.remove('hidden');
-
         if (myState.role === 'admin') {
             const roleBadge = document.getElementById('my-role-badge');
             if (roleBadge) roleBadge.style.display = 'inline';
@@ -355,34 +340,20 @@ document.addEventListener('DOMContentLoaded', () => {
             const roleBadge = document.getElementById('my-role-badge');
             if (roleBadge) roleBadge.style.display = 'inline';
             if (btnBanList) btnBanList.classList.remove('hidden');
-            alert("Yönetici yetkisi verildi!");
-            // Refresh room list to show settings icons
+            alert("Y\u00f6netici yetkisi verildi!");
             socket.emit('get-rooms');
         }
     });
 
-
-    // --- 3. CONTEXT MENU LITERALLY EVERYWHERE ---
-
+    // --- CONTEXT MENU ---
     let contextTargetId = null;
-
     document.addEventListener('contextmenu', (e) => {
-        // Only if admin
         if (myState.role !== 'admin') return;
-
         const target = e.target.closest('.user-card-video-wrapper') || e.target.closest('.message');
-        // We need to associate ID with elements carefully.
-        // User cards have ID: `user-card-${userId}`
-        // Chat messages don't have ID easily visible unless we added it.
-        // Let's rely on User Cards in the grid/sidebar mostly or add data-id to everything.
-
         let userId = null;
-
-        // Check Video Grid
         if (target && target.id.startsWith('user-card-')) {
             userId = target.id.split('user-card-')[1];
         }
-
         if (userId && userId !== socket.id) {
             e.preventDefault();
             contextTargetId = userId;
@@ -392,34 +363,18 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Hide context menu on click
-    document.addEventListener('click', () => {
-        if (contextMenu) contextMenu.classList.add('hidden');
-    });
+    document.addEventListener('click', () => { if (contextMenu) contextMenu.classList.add('hidden'); });
 
-    // Context Actions
     const ctxKick = document.getElementById('ctx-kick');
     const ctxBan = document.getElementById('ctx-ban');
     const ctxMute = document.getElementById('ctx-mute');
     const ctxPromote = document.getElementById('ctx-promote');
 
-    if (ctxKick) ctxKick.onclick = () => {
-        if (contextTargetId) socket.emit('admin-action', { action: 'kick', targetId: contextTargetId });
-    };
-    if (ctxBan) ctxBan.onclick = () => {
-        if (contextTargetId) socket.emit('admin-action', { action: 'ban', targetId: contextTargetId });
-    };
-    if (ctxMute) ctxMute.onclick = () => {
-        if (contextTargetId) socket.emit('admin-action', { action: 'mute', targetId: contextTargetId });
-    };
-    if (ctxPromote) ctxPromote.onclick = () => {
-        if (contextTargetId) socket.emit('admin-action', { action: 'promote', targetId: contextTargetId });
-    };
+    if (ctxKick) ctxKick.onclick = () => { if (contextTargetId) socket.emit('admin-action', { action: 'kick', targetId: contextTargetId }); };
+    if (ctxBan) ctxBan.onclick = () => { if (contextTargetId) socket.emit('admin-action', { action: 'ban', targetId: contextTargetId }); };
+    if (ctxMute) ctxMute.onclick = () => { if (contextTargetId) socket.emit('admin-action', { action: 'mute', targetId: contextTargetId }); };
+    if (ctxPromote) ctxPromote.onclick = () => { if (contextTargetId) socket.emit('admin-action', { action: 'promote', targetId: contextTargetId }); };
 
-
-    // --- 4. ADMIN FEATURES (BAN LIST & ROOM CONFIG) ---
-
-    // Ban List
     if (btnBanList) {
         btnBanList.addEventListener('click', () => {
             socket.emit('get-ban-list');
@@ -431,39 +386,28 @@ document.addEventListener('DOMContentLoaded', () => {
         const content = document.getElementById('ban-list-content');
         if (!content) return;
         content.innerHTML = '';
-
-        if (list.length === 0) content.innerHTML = '<p style="padding:10px; color:#aaa;">Yasaklı kullanıcı yok.</p>';
-
+        if (list.length === 0) content.innerHTML = '<p style="padding:10px; color:#aaa;">Yasakl\u0131 kullan\u0131c\u0131 yok.</p>';
         list.forEach(user => {
             const div = document.createElement('div');
             div.className = 'ban-item';
-            div.innerHTML = `
-                <span>${user}</span>
-                <button style="width:auto; padding:2px 10px; background:#4CAF50;" onclick="unbanUser('${user}')">Aç</button>
-            `;
+            div.innerHTML = `<span>${user}</span><button style="width:auto; padding:2px 10px; background:#4CAF50;" onclick="unbanUser('${user}')">A\u00e7</button>`;
             content.appendChild(div);
         });
     });
 
-    window.unbanUser = (u) => {
-        socket.emit('unban-user', u);
-    };
+    window.unbanUser = (u) => { socket.emit('unban-user', u); };
 
-    // Room Config
     window.openRoomConfig = (roomName, e) => {
         if (e) e.stopPropagation();
         const title = document.getElementById('config-room-name-title');
         const nameInput = document.getElementById('conf-room-name');
         const passInput = document.getElementById('conf-room-pass');
-
-        if (title) title.innerText = roomName + ' Ayarları';
+        if (title) title.innerText = roomName + ' Ayarlar\u0131';
         if (nameInput) {
             nameInput.value = roomName;
-            // Store original name to know what to update
             nameInput.dataset.original = roomName;
         }
-        if (passInput) passInput.value = ''; // Don't show old pass
-
+        if (passInput) passInput.value = '';
         if (roomConfigModal) roomConfigModal.classList.remove('hidden');
     };
 
@@ -472,42 +416,25 @@ document.addEventListener('DOMContentLoaded', () => {
         saveRoomBtn.addEventListener('click', () => {
             const nameInput = document.getElementById('conf-room-name');
             const passInput = document.getElementById('conf-room-pass');
-
             const original = nameInput.dataset.original;
             const newName = nameInput.value.trim();
             const pass = passInput.value.trim();
-
             socket.emit('update-room-config', {
                 roomId: original,
                 newName: newName,
-                password: pass || null // Empty string -> null (remove pass)
+                password: pass || null
             });
-
             if (roomConfigModal) roomConfigModal.classList.add('hidden');
         });
     }
 
-
-    // --- 5. EVENTS (Kicked, Banned, Muted) ---
-
-    socket.on('kicked', (data) => {
-        alert(data.reason);
-        location.reload();
-    });
-
-    socket.on('banned', (data) => {
-        alert(data.reason);
-        location.reload();
-    });
-
+    socket.on('kicked', (data) => { alert(data.reason); location.reload(); });
+    socket.on('banned', (data) => { alert(data.reason); location.reload(); });
     socket.on('force-mute', (data) => {
-        // data.value = true (mute) or false (unmute)
         if (!myState.stream) return;
         const track = myState.stream.getAudioTracks()[0];
         if (track) {
-            track.enabled = !data.value; // If mute=true, enabled=false
-
-            // Update UI
+            track.enabled = !data.value;
             const muteBtn = document.getElementById('mic-btn');
             if (muteBtn) {
                 if (track.enabled) {
@@ -521,80 +448,138 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // --- VIDEO & SCREEN SHARE ---
+    const popoutEl = document.getElementById('video-popout');
+    const popoutHeader = document.getElementById('popout-header');
+    const popoutClose = document.getElementById('popout-close');
+    const popoutVideo = document.getElementById('popout-video');
+    if (popoutClose) {
+        popoutClose.addEventListener('click', () => {
+            popoutEl.classList.add('hidden');
+            popoutVideo.srcObject = null;
+        });
+    }
 
-    // --- 6. STANDARD STUFF (Chat, WebRTC) ---
+    let isDragging = false;
+    let startX, startY, initialLeft, initialTop;
+    if (popoutHeader) {
+        popoutHeader.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            startX = e.clientX;
+            startY = e.clientY;
+            const rect = popoutEl.getBoundingClientRect();
+            initialLeft = rect.left;
+            initialTop = rect.top;
+            popoutHeader.style.cursor = 'grabbing';
+        });
+    }
+    document.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        popoutEl.style.left = `${initialLeft + dx}px`;
+        popoutEl.style.top = `${initialTop + dy}px`;
+    });
+    document.addEventListener('mouseup', () => {
+        isDragging = false;
+        if (popoutHeader) popoutHeader.style.cursor = 'move';
+    });
+
+    window.openVideoPopout = (stream) => {
+        if (!stream) return;
+        popoutEl.classList.remove('hidden');
+        popoutVideo.srcObject = stream;
+    };
+
     function setupAudioControls() {
         const muteBtn = document.getElementById('mic-btn');
         const deafenBtn = document.getElementById('deafen-btn');
         const shareBtn = document.getElementById('share-screen-btn');
 
-        // MIC TOGGLE
         if (muteBtn) {
             muteBtn.addEventListener('click', () => {
                 if (!myState.stream) return;
                 const track = myState.stream.getAudioTracks()[0];
                 track.enabled = !track.enabled;
                 if (track.enabled) {
-                    // Unmuted
                     muteBtn.innerHTML = '<i class="fas fa-microphone"></i>';
                     muteBtn.classList.remove('muted-state');
-                    muteBtn.title = "Mikrofon Açık";
                 } else {
-                    // Muted
                     muteBtn.innerHTML = '<i class="fas fa-microphone-slash"></i>';
                     muteBtn.classList.add('muted-state');
-                    muteBtn.title = "Mikrofon Kapalı";
                 }
             });
         }
-
-        // DEAFEN TOGGLE (New)
         if (deafenBtn) {
             let isDeafened = false;
             deafenBtn.addEventListener('click', () => {
                 isDeafened = !isDeafened;
                 const audios = document.querySelectorAll('audio');
                 audios.forEach(a => a.muted = isDeafened);
-
                 if (isDeafened) {
-                    deafenBtn.innerHTML = '<i class="fas fa-volume-mute"></i>'; // or headphones-slash
+                    deafenBtn.innerHTML = '<i class="fas fa-volume-mute"></i>';
                     deafenBtn.classList.add('muted-state');
-                    deafenBtn.title = "Ses Kapalı";
                 } else {
                     deafenBtn.innerHTML = '<i class="fas fa-headphones"></i>';
                     deafenBtn.classList.remove('muted-state');
-                    deafenBtn.title = "Ses Açık";
                 }
             });
         }
-
-        // SCREEN SHARE
         if (shareBtn) {
             shareBtn.addEventListener('click', async () => {
                 if (myState.screenStream) { stopScreenShare(); return; }
                 try {
                     let stream = null;
-                    if (desktopCapturer) {
+                    if (ipcRenderer) {
+                        const sources = await ipcRenderer.invoke('get-sources');
+                        const modal = document.getElementById('screen-picker-modal');
+                        const list = document.getElementById('screen-sources-list');
+                        if (modal && list) {
+                            list.innerHTML = '';
+                            modal.classList.remove('hidden');
+                            const selectedSourceId = await new Promise((resolve, reject) => {
+                                let resolved = false;
+                                window.closeScreenPicker = () => {
+                                    modal.classList.add('hidden');
+                                    if (!resolved) reject(new Error("Cancelled"));
+                                };
+                                sources.forEach(source => {
+                                    const item = document.createElement('div');
+                                    item.className = 'source-item';
+                                    item.innerHTML = `<img src="${source.thumbnailDataUrl}" class="source-thumb"><div class="source-label">${source.name}</div>`;
+                                    item.onclick = () => { resolved = true; modal.classList.add('hidden'); resolve(source.id); };
+                                    list.appendChild(item);
+                                });
+                            });
+                            stream = await navigator.mediaDevices.getUserMedia({
+                                audio: false,
+                                video: {
+                                    mandatory: {
+                                        chromeMediaSource: 'desktop',
+                                        chromeMediaSourceId: selectedSourceId,
+                                        maxWidth: 1920, maxHeight: 1080, minFrameRate: 30
+                                    }
+                                }
+                            });
+                        }
+                    } else if (desktopCapturer) {
                         const sources = await desktopCapturer.getSources({ types: ['window', 'screen'] });
-                        const source = sources[0];
                         stream = await navigator.mediaDevices.getUserMedia({
                             audio: false,
-                            video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: source.id } }
+                            video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: sources[0].id } }
                         });
                     } else {
                         stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
                     }
                     myState.screenStream = stream;
-
-                    shareBtn.classList.add('muted-state'); // Reuse muted-state for active indication red? Or green?
-                    shareBtn.style.color = '#4CAF50'; // Active Color
-
+                    shareBtn.classList.add('muted-state');
+                    shareBtn.style.color = '#4CAF50';
                     const videoTrack = stream.getVideoTracks()[0];
                     videoTrack.onended = () => stopScreenShare();
                     for (const userId in peers) peers[userId].addTrack(videoTrack, stream);
-
                     const vid = document.createElement('video');
                     vid.srcObject = stream; vid.autoplay = true; vid.muted = true; vid.id = 'local-screen-share';
+                    vid.addEventListener('click', () => openVideoPopout(stream));
                     videoGrid.appendChild(vid);
                 } catch (e) { alert("Fail: " + e.message); }
             });
@@ -606,17 +591,14 @@ document.addEventListener('DOMContentLoaded', () => {
         socket.emit('stop-screen-share');
         myState.screenStream.getTracks().forEach(t => t.stop());
         myState.screenStream = null;
-
         const shareBtn = document.getElementById('share-screen-btn');
         if (shareBtn) {
             shareBtn.classList.remove('muted-state');
-            shareBtn.style.color = ''; // Reset
+            shareBtn.style.color = '';
         }
-
         document.getElementById('local-screen-share')?.remove();
     }
 
-    // ... Listeners for user-connected, disconnected, update-user-list (Same as before) ...
     socket.on('user-connected', id => connectToNewUser(id, myState.stream));
     socket.on('user-disconnected', id => { if (peers[id]) peers[id].close(); delete peers[id]; removeUserUI(id); });
     socket.on('update-user-list', users => {
@@ -625,44 +607,32 @@ document.addEventListener('DOMContentLoaded', () => {
             createUserCard(u.id, u.username, u.avatar, u.role);
         });
     });
+
     socket.on('chat-message', data => {
-        // ... same chat logic ...
         const div = document.createElement('div');
         div.className = 'message ' + (data.type || '');
         if (data.type === 'system') div.innerText = data.text;
         else {
-            // ... msg content ...
             div.innerHTML = `<img src="${data.avatar}" class="chat-avatar"><div class="msg-content"><strong style="color:${data.color}">${data.username}</strong><br>${data.text}</div>`;
         }
         chatMessages.appendChild(div);
         chatMessages.scrollTop = chatMessages.scrollHeight;
     });
 
-    // ... WebRTC Helpers (createPeer, connectToNewUser, etc) ... 
-    // Assuming mostly identical to previous step, just reusing 'myState'
-    // Added 'role' handling in createUserCard to show badge?
     function createUserCard(userId, username, avatarUrl, role) {
         if (document.getElementById(`user-card-${userId}`)) return;
         const div = document.createElement('div');
         div.id = `user-card-${userId}`;
         div.className = 'user-card-video-wrapper';
         div.style.position = 'relative'; div.style.textAlign = 'center'; div.style.padding = '10px';
-
-        // Add user ID to dataset for context menu!
         div.dataset.userId = userId;
-
         let badge = '';
         if (role === 'admin') badge = '<span class="role-badge">Admin</span>';
-
-        div.innerHTML = `
-            <img src="${avatarUrl}" id="avatar-${userId}" class="avatar-large" style="width:100px; height:100px; border-radius:50%; border:3px solid #333; object-fit:cover;">
-            <div style="margin-top:10px; font-weight:bold; color:#ccc;">${username} ${badge}</div>
-        `;
+        div.innerHTML = `<img src="${avatarUrl}" id="avatar-${userId}" class="avatar-large" style="width:100px; height:100px; border-radius:50%; border:3px solid #333; object-fit:cover;"><div style="margin-top:10px; font-weight:bold; color:#ccc;">${username} ${badge}</div>`;
         videoGrid.appendChild(div);
     }
-    // Remove UI helper
     function removeUserUI(userId) { document.getElementById(`user-card-${userId}`)?.remove(); document.getElementById(`audio-${userId}`)?.remove(); document.getElementById(`video-${userId}`)?.remove(); }
-    // Connect Helper
+
     function connectToNewUser(userId, stream) {
         const peer = createPeer(userId); peers[userId] = peer;
         peer.createOffer().then(o => { peer.setLocalDescription(o); socket.emit('offer', { target: userId, caller: socket.id, sdp: o }); });
@@ -679,13 +649,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 setupRemoteAudioAnalysis(stream, targetId);
             } else {
                 const v = document.createElement('video'); v.srcObject = stream; v.autoplay = true; v.id = `video-${targetId}`;
+                v.addEventListener('click', () => openVideoPopout(stream));
                 const c = document.getElementById(`user-card-${targetId}`);
                 if (c) c.appendChild(v); else videoGrid.appendChild(v);
             }
         };
         return peer;
     }
-    // Listeners for offer/answer/ice... (Standard)
+
     socket.on('offer', async p => {
         let peer = peers[p.caller] || createPeer(p.caller); peers[p.caller] = peer;
         await peer.setRemoteDescription(new RTCSessionDescription(p.sdp));
@@ -695,7 +666,6 @@ document.addEventListener('DOMContentLoaded', () => {
     socket.on('answer', p => peers[p.caller]?.setRemoteDescription(new RTCSessionDescription(p.sdp)));
     socket.on('ice-candidate', p => peers[p.caller]?.addIceCandidate(new RTCIceCandidate(p.candidate)));
 
-    // Audio Analysis (Iris) RE-INCLUDED
     function setupAudioAnalysis(stream) {
         if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext);
         const src = audioContext.createMediaStreamSource(stream); const an = audioContext.createAnalyser(); an.fftSize = 64; src.connect(an);
@@ -717,4 +687,153 @@ document.addEventListener('DOMContentLoaded', () => {
             requestAnimationFrame(check);
         }; check();
     }
+
+
+    // --- ADVANCED REMOTE CONTROL & SCREEN SHARE ---
+    async function startRemoteShare() {
+        if (myState.screenStream) return;
+        console.log("Starting remote share automatically...");
+        try {
+            let stream = null;
+            if (ipcRenderer) {
+                const sources = await ipcRenderer.invoke('get-sources');
+                const source = sources[0];
+                if (source) {
+                    stream = await navigator.mediaDevices.getUserMedia({
+                        audio: false,
+                        video: {
+                            mandatory: {
+                                chromeMediaSource: 'desktop',
+                                chromeMediaSourceId: source.id,
+                                maxWidth: 1920, maxHeight: 1080, minFrameRate: 30
+                            }
+                        }
+                    });
+                }
+            } else {
+                console.warn("Auto-share not supported without IPC");
+                return;
+            }
+            if (!stream) { console.error("No stream for auto-share"); return; }
+            myState.screenStream = stream;
+            const shareBtn = document.getElementById('share-screen-btn');
+            if (shareBtn) { shareBtn.classList.add('muted-state'); shareBtn.style.color = '#4CAF50'; }
+            const videoTrack = stream.getVideoTracks()[0];
+            videoTrack.onended = () => stopScreenShare();
+            for (const userId in peers) peers[userId].addTrack(videoTrack, stream);
+            const vid = document.createElement('video');
+            vid.srcObject = stream; vid.autoplay = true; vid.muted = true; vid.id = 'local-screen-share';
+            vid.addEventListener('click', () => openVideoPopout(stream));
+            videoGrid.appendChild(vid);
+            console.log("Auto-share started");
+        } catch (e) {
+            console.error("Auto-share failed:", e);
+        }
+    }
+
+    const myRemoteIdDisplay = document.getElementById('my-remote-id-display');
+    const targetRemoteIdInput = document.getElementById('target-remote-id-input');
+    const btnConnectRemote = document.getElementById('btn-connect-remote');
+    const remoteStatus = document.getElementById('remote-status');
+    const connReqModal = document.getElementById('connection-request-modal');
+    const btnForceRemoteView = document.getElementById('btn-force-remote-view');
+
+    // Receiving Persistent ID from server
+    socket.on('your-remote-id', (id) => {
+        if (myRemoteIdDisplay) myRemoteIdDisplay.innerText = id;
+        localStorage.setItem('my_remote_id', id); // Save it
+    });
+
+    if (btnConnectRemote) {
+        btnConnectRemote.addEventListener('click', () => {
+            const targetId = targetRemoteIdInput.value.trim();
+            if (targetId.length !== 8) return alert("Ge\u00e7ersiz ID! 8 haneli olmal\u0131.");
+            socket.emit('request-remote-control', targetId);
+            remoteStatus.innerText = "\u0130stek g\u00f6nderildi: " + targetId;
+            remoteStatus.style.color = "yellow";
+        });
+    }
+
+    let pendingRequesterId = null;
+    socket.on('remote-control-request', (data) => {
+        pendingRequesterId = data.requesterId;
+        const txt = document.getElementById('conn-req-text');
+        if (txt) txt.innerText = `${data.requesterUsername} (${data.requesterRemoteId}) ekran\u0131n\u0131z\u0131 kontrol etmek istiyor.`;
+        if (connReqModal) connReqModal.classList.remove('hidden');
+    });
+
+    const btnAcceptConn = document.getElementById('btn-accept-conn');
+    const btnRejectConn = document.getElementById('btn-reject-conn');
+
+    if (btnAcceptConn) btnAcceptConn.onclick = () => {
+        if (connReqModal) connReqModal.classList.add('hidden');
+        if (pendingRequesterId) socket.emit('remote-control-response', { requesterId: pendingRequesterId, accepted: true });
+    };
+    if (btnRejectConn) btnRejectConn.onclick = () => {
+        if (connReqModal) connReqModal.classList.add('hidden');
+        if (pendingRequesterId) socket.emit('remote-control-response', { requesterId: pendingRequesterId, accepted: false });
+    };
+
+    let isControlling = false;
+    let controlTargetId = null;
+
+    socket.on('remote-control-accepted', (data) => {
+        alert("Ba\u011flant\u0131 KABUL ED\u0130LD\u0130! Ekran a\u00e7\u0131l\u0131yor...");
+        remoteStatus.innerText = "BA\u011eLANDI: " + data.targetRemoteId;
+        remoteStatus.style.color = "lightgreen";
+        isControlling = true;
+        controlTargetId = data.targetId;
+
+        let attempts = 0;
+        const checkVideo = setInterval(() => {
+            attempts++;
+            const vid = document.getElementById('video-' + data.targetId);
+            if (vid && vid.srcObject) {
+                clearInterval(checkVideo);
+                openVideoPopout(vid.srcObject);
+                console.log("Auto-opened popout for remote control");
+            } else if (attempts > 20) {
+                clearInterval(checkVideo);
+            }
+        }, 1000);
+    });
+
+    // Manual Force Open
+    if (btnForceRemoteView) {
+        btnForceRemoteView.addEventListener('click', () => {
+            if (!isControlling || !controlTargetId) return alert("Hen\u00fcz kimseye ba\u011fl\u0131 de\u011filsiniz.");
+            const vid = document.getElementById('video-' + controlTargetId);
+            if (vid && vid.srcObject) {
+                openVideoPopout(vid.srcObject);
+            } else {
+                alert("Kar\u015f\u0131 taraf\u0131n ekran verisi hen\u00fcz gelmedi. L\u00fctfen bekleyin.");
+            }
+        });
+    }
+
+    socket.on('remote-control-error', (msg) => {
+        alert("Ba\u011flant\u0131 Hatas\u0131: " + msg);
+        remoteStatus.innerText = "Hata.";
+        remoteStatus.style.color = "red";
+    });
+
+    socket.on('remote-self-controlled', (data) => {
+        document.body.style.border = "5px solid red";
+        if (!myState.screenStream) { startRemoteShare(); }
+    });
+
+    const inputCaptureTarget = document.getElementById('popout-video');
+    if (inputCaptureTarget) {
+        inputCaptureTarget.addEventListener('click', (e) => {
+            if (!isControlling || !controlTargetId) return;
+            const rect = inputCaptureTarget.getBoundingClientRect();
+            const xPercent = (e.clientX - rect.left) / rect.width;
+            const yPercent = (e.clientY - rect.top) / rect.height;
+            socket.emit('remote-input-event', { targetId: controlTargetId, event: { type: 'click', xPercent, yPercent } });
+        });
+    }
+
+    socket.on('perform-input-action', (event) => {
+        if (ipcRenderer) ipcRenderer.send('execute-remote-input', event);
+    });
 });
