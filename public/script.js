@@ -6,7 +6,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let socket;
     try {
         const ioClient = require('socket.io-client');
-        socket = ioClient('http://localhost:3000/', { transports: ['websocket'], reconnectionAttempts: 10 });
+        socket = ioClient('https://voiceapp-ecxg.onrender.com/', { transports: ['websocket'], reconnectionAttempts: 10 });
         console.log("Socket initialized via require (Electron)");
     } catch (e) {
         console.log("Socket fallback to CDN");
