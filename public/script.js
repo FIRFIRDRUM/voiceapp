@@ -54,7 +54,13 @@ document.addEventListener('DOMContentLoaded', () => {
         room: null,
         stream: null,
         screenStream: null,
-        isReconnecting: false
+        isReconnecting: false,
+        settings: {
+            inputMode: localStorage.getItem('input_mode') || 'voice-activity', // 'voice-activity' or 'ptt'
+            pttKey: localStorage.getItem('ptt_key') || 'Space',
+            pttKeyCode: localStorage.getItem('ptt_key_code') || 'Space'
+        },
+        isPttPressed: false
     };
 
     const myPeer = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
@@ -174,6 +180,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 myState.stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
                 setupAudioControls();
                 setupAudioAnalysis(myState.stream);
+
+                // PTT Check on Init
+                if (myState.settings.inputMode === 'ptt') {
+                    setMicrophoneState(false);
+                }
             } catch (e) {
                 console.error(e);
                 alert("Mikrofon hatas\u0131 (ancak giri\u015f yap\u0131l\u0131yor): " + e.message);
@@ -869,4 +880,114 @@ document.addEventListener('DOMContentLoaded', () => {
     socket.on('perform-input-action', (event) => {
         if (ipcRenderer) ipcRenderer.send('execute-remote-input', event);
     });
+
+    // --- SETTINGS & PTT ---
+    const settingsBtn = document.getElementById('settings-btn');
+    const settingsModal = document.getElementById('settings-modal');
+    const saveSettingsBtn = document.getElementById('btn-save-settings');
+    const radioVoice = document.getElementById('mode-voice-activity');
+    const radioPtt = document.getElementById('mode-ptt');
+    const pttConfigArea = document.getElementById('ptt-config-area');
+    const btnBindKey = document.getElementById('btn-bind-key');
+
+    if (settingsBtn) {
+        settingsBtn.addEventListener('click', () => {
+            const currentMode = myState.settings?.inputMode || 'voice-activity';
+            if (currentMode === 'ptt') {
+                if (radioPtt) radioPtt.checked = true;
+                if (pttConfigArea) pttConfigArea.classList.remove('hidden');
+            } else {
+                if (radioVoice) radioVoice.checked = true;
+                if (pttConfigArea) pttConfigArea.classList.add('hidden');
+            }
+            if (btnBindKey) btnBindKey.innerText = `Tuş Ata: ${myState.settings?.pttKey || 'Space'}`;
+            if (settingsModal) settingsModal.classList.remove('hidden');
+        });
+    }
+
+    if (radioVoice && radioPtt) {
+        radioVoice.addEventListener('change', () => pttConfigArea.classList.add('hidden'));
+        radioPtt.addEventListener('change', () => pttConfigArea.classList.remove('hidden'));
+    }
+
+    let isBindingKey = false;
+    if (btnBindKey) {
+        btnBindKey.addEventListener('click', () => {
+            isBindingKey = true;
+            btnBindKey.innerText = "Bir tuşa basın...";
+            btnBindKey.style.background = "#d32f2f";
+        });
+    }
+
+    document.addEventListener('keydown', (e) => {
+        if (!myState.settings) return;
+
+        if (isBindingKey) {
+            e.preventDefault();
+            const code = e.code;
+            const key = e.key.toUpperCase();
+
+            myState.settings.pttKey = key === ' ' ? 'SPACE' : key;
+            myState.settings.pttKeyCode = code;
+
+            if (btnBindKey) {
+                btnBindKey.innerText = `Tuş Ata: ${myState.settings.pttKey}`;
+                btnBindKey.style.background = "#555";
+            }
+            isBindingKey = false;
+            return;
+        }
+
+        if (myState.settings.inputMode === 'ptt' && !myState.isPttPressed) {
+            if (e.code === myState.settings.pttKeyCode) {
+                myState.isPttPressed = true;
+                setMicrophoneState(true);
+                const micBtn = document.getElementById('mic-btn');
+                if (micBtn) micBtn.style.color = '#4CAF50';
+            }
+        }
+    });
+
+    document.addEventListener('keyup', (e) => {
+        if (!myState.settings) return;
+
+        if (myState.settings.inputMode === 'ptt' && myState.isPttPressed) {
+            if (e.code === myState.settings.pttKeyCode) {
+                myState.isPttPressed = false;
+                setMicrophoneState(false);
+                const micBtn = document.getElementById('mic-btn');
+                if (micBtn) micBtn.style.color = '';
+            }
+        }
+    });
+
+    if (saveSettingsBtn) {
+        saveSettingsBtn.addEventListener('click', () => {
+            const newMode = radioPtt.checked ? 'ptt' : 'voice-activity';
+            myState.settings.inputMode = newMode;
+
+            localStorage.setItem('input_mode', newMode);
+            localStorage.setItem('ptt_key', myState.settings.pttKey);
+            localStorage.setItem('ptt_key_code', myState.settings.pttKeyCode);
+
+            if (myState.stream) {
+                if (newMode === 'ptt') {
+                    setMicrophoneState(false);
+                } else {
+                    setMicrophoneState(true);
+                }
+            }
+            if (settingsModal) settingsModal.classList.add('hidden');
+        });
+    }
+
+    function setMicrophoneState(enabled) {
+        if (!myState.stream) return;
+        const track = myState.stream.getAudioTracks()[0];
+        if (track) {
+            track.enabled = enabled;
+        }
+    }
+
 });
+
