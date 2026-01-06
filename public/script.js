@@ -10,7 +10,11 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log("Socket initialized via require (Electron)");
     } catch (e) {
         console.log("Socket fallback to CDN");
-        socket = io('http://localhost:3000/', { transports: ['websocket'], reconnectionAttempts: 10 });
+        // Use relative path for web (Render/Browser) to auto-detect origin
+        socket = io({
+            transports: ['websocket'],
+            reconnectionAttempts: 10
+        });
     }
 
     socket.on('connect_error', (err) => {
