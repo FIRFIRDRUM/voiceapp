@@ -1,7 +1,7 @@
 {
   "name": "omnivoice",
   "productName": "OmniVoice",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "OmniVoice Voice Chat Application",
   "main": "main.js",
   "scripts": {
@@ -46,6 +46,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "electron-updater": "^6.1.1",
     "express": "^5.2.1",
     "localtunnel": "^2.0.2",
     "socket.io": "^4.8.1",
