@@ -204,3 +204,57 @@ ipcMain.handle('get-sources', async (event) => {
         return [];
     }
 });
+
+// --- NATIVE PTT LISTENER ---
+const nativeListenSource = path.join(__dirname, 'native_listen.cs');
+const nativeListenExe = path.join(__dirname, 'native_listen.exe');
+
+// Compile Listener
+if (fs.existsSync(nativeListenSource) && !fs.existsSync(nativeListenExe)) {
+    console.log("Compiling native_listen.cs...");
+    exec(`"${cscPath}" /out:"${nativeListenExe}" "${nativeListenSource}"`, (err, stdout, stderr) => {
+        if (err) console.error("Native Listen Compilation failed:", err);
+        else console.log("Native Listen Compilation success");
+    });
+}
+
+let pttProcess = null;
+
+ipcMain.on('start-native-ptt', (event, keyCode) => {
+    if (pttProcess) {
+        pttProcess.kill();
+        pttProcess = null;
+    }
+
+    if (!fs.existsSync(nativeListenExe)) {
+        console.error("Native listener exe not found");
+        return;
+    }
+
+    console.log("Starting PTT Listener for KeyCode:", keyCode);
+    pttProcess = spawn(nativeListenExe, [keyCode.toString()]);
+
+    pttProcess.stdout.on('data', (data) => {
+        const output = data.toString().trim();
+        if (output === 'D') {
+            mainWindow.webContents.send('ptt-status-change', true); // Pressed
+        } else if (output === 'U') {
+            mainWindow.webContents.send('ptt-status-change', false); // Released
+        }
+    });
+
+    pttProcess.on('error', (err) => console.error("PTT Process Error:", err));
+});
+
+ipcMain.on('stop-native-ptt', () => {
+    if (pttProcess) {
+        console.log("Stopping PTT Listener");
+        pttProcess.kill();
+        pttProcess = null;
+    }
+});
+
+app.on('before-quit', () => {
+    if (pttProcess) pttProcess.kill();
+    killServer();
+});

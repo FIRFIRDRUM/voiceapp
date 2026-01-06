@@ -178,13 +178,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
             try {
                 myState.stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+
                 setupAudioControls();
                 setupAudioAnalysis(myState.stream);
 
                 // PTT Check on Init
                 if (myState.settings.inputMode === 'ptt') {
                     setMicrophoneState(false);
+                } else {
+                    setMicrophoneState(true);
                 }
+
+                // Start Native PTT if needed
+                if (myState.settings.inputMode === 'ptt' && ipcRenderer && myState.settings.pttKeyCode) {
+                    ipcRenderer.send('start-native-ptt', myState.settings.pttKeyCode);
+                }
+
             } catch (e) {
                 console.error(e);
                 alert("Mikrofon hatas\u0131 (ancak giri\u015f yap\u0131l\u0131yor): " + e.message);
@@ -914,52 +923,76 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnBindKey) {
         btnBindKey.addEventListener('click', () => {
             isBindingKey = true;
-            btnBindKey.innerText = "Bir tuşa basın...";
+            btnBindKey.innerText = "Bir tuşa bas (Klavye/Mouse)...";
             btnBindKey.style.background = "#d32f2f";
         });
     }
 
-    document.addEventListener('keydown', (e) => {
-        if (!myState.settings) return;
+    // Helper to map mouse buttons to VK codes roughly
+    // L:1, R:2, M:4, X1:5, X2:6
+    function getMouseVk(button) {
+        if (button === 0) return 1; // Left
+        if (button === 1) return 4; // Middle
+        if (button === 2) return 2; // Right
+        if (button === 3) return 5; // X1
+        if (button === 4) return 6; // X2
+        return 0;
+    }
 
+    // Handle Mouse Binding
+    document.addEventListener('mousedown', (e) => {
         if (isBindingKey) {
             e.preventDefault();
-            const code = e.code;
-            const key = e.key.toUpperCase();
+            const vk = getMouseVk(e.button);
+            if (vk === 0) return;
 
-            myState.settings.pttKey = key === ' ' ? 'SPACE' : key;
+            myState.settings.pttKey = `Mouse ${e.button}`;
+            myState.settings.pttKeyCode = vk; // VIRTUAL KEY CODE
+
+            updateBindUI();
+            isBindingKey = false;
+        }
+    });
+
+    document.addEventListener('keydown', (e) => {
+        if (isBindingKey) {
+            e.preventDefault();
+            const code = e.keyCode; // INTEGER
+            const keyName = e.code || e.key;
+
+            myState.settings.pttKey = keyName;
             myState.settings.pttKeyCode = code;
 
-            if (btnBindKey) {
-                btnBindKey.innerText = `Tuş Ata: ${myState.settings.pttKey}`;
-                btnBindKey.style.background = "#555";
-            }
+            updateBindUI();
             isBindingKey = false;
-            return;
         }
+    });
 
-        if (myState.settings.inputMode === 'ptt' && !myState.isPttPressed) {
-            if (e.code === myState.settings.pttKeyCode) {
+    function updateBindUI() {
+        if (btnBindKey) {
+            btnBindKey.innerText = `Tuş Ata: ${myState.settings.pttKey} (Code: ${myState.settings.pttKeyCode})`;
+            btnBindKey.style.background = "#555";
+        }
+    }
+
+    // IPC PTT Status Listener (From Native Tool)
+    if (ipcRenderer) {
+        ipcRenderer.on('ptt-status-change', (event, isPressed) => {
+            if (myState.settings.inputMode !== 'ptt') return;
+
+            if (isPressed) {
                 myState.isPttPressed = true;
                 setMicrophoneState(true);
                 const micBtn = document.getElementById('mic-btn');
                 if (micBtn) micBtn.style.color = '#4CAF50';
-            }
-        }
-    });
-
-    document.addEventListener('keyup', (e) => {
-        if (!myState.settings) return;
-
-        if (myState.settings.inputMode === 'ptt' && myState.isPttPressed) {
-            if (e.code === myState.settings.pttKeyCode) {
+            } else {
                 myState.isPttPressed = false;
                 setMicrophoneState(false);
                 const micBtn = document.getElementById('mic-btn');
                 if (micBtn) micBtn.style.color = '';
             }
-        }
-    });
+        });
+    }
 
     if (saveSettingsBtn) {
         saveSettingsBtn.addEventListener('click', () => {
@@ -970,16 +1003,24 @@ document.addEventListener('DOMContentLoaded', () => {
             localStorage.setItem('ptt_key', myState.settings.pttKey);
             localStorage.setItem('ptt_key_code', myState.settings.pttKeyCode);
 
+            // Apply immediately
             if (myState.stream) {
                 if (newMode === 'ptt') {
                     setMicrophoneState(false);
+                    // Start Native Watcher
+                    if (ipcRenderer && myState.settings.pttKeyCode) {
+                        ipcRenderer.send('start-native-ptt', myState.settings.pttKeyCode);
+                    }
                 } else {
                     setMicrophoneState(true);
+                    if (ipcRenderer) ipcRenderer.send('stop-native-ptt');
                 }
             }
             if (settingsModal) settingsModal.classList.add('hidden');
         });
     }
+
+    // --- AUDIO PIPELINE REMOVED (Reverted to raw stream) ---
 
     function setMicrophoneState(enabled) {
         if (!myState.stream) return;
@@ -990,4 +1031,3 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
 });
-
